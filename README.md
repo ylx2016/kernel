@@ -5,6 +5,9 @@ linux kernel for bbr/bbrplus
 见
 https://github.com/ylx2016/kernel/releases
 
+一键安装内核见
+https://github.com/ylx2016/Linux-NetSpeed/releases
+
 c6-c8 = centos6-centos8
 d9-d10=debian9-debian10
 u16-u19=ubuntu16-19
