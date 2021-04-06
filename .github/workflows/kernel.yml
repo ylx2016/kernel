@@ -56,8 +56,9 @@ jobs:
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
 
     - name: Load custom configuration
-    working-directory: /workdir
+      working-directory: /workdir
       run: |
+       # [ -e $CONFIG_FILE ] && mv $CONFIG_FILE .config
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE .config
 
     - name: SSH connection to Actions
