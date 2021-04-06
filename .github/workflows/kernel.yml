@@ -58,8 +58,7 @@ jobs:
     - name: Load custom configuration
       working-directory: /workdir
       run: |
-       # [ -e $CONFIG_FILE ] && mv $CONFIG_FILE .config
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE .config
+        wget https://raw.githubusercontent.com/ylx2016/kernel/master/.config
 
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
