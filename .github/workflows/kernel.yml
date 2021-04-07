@@ -37,7 +37,6 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install build-essential bzip2 gawk gettext git patch unzip htop wget curl -y
         sudo -E apt-get -qq build-dep linux -y
