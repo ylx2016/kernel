@@ -20,8 +20,8 @@ on:
 env:
   CONFIG_FILE: .config
   UPLOAD_DIR: true
-  UPLOAD_KERNEL: false
-  UPLOAD_RELEASE: false
+  UPLOAD_KERNEL: true
+  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
