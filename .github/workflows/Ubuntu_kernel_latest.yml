@@ -20,7 +20,6 @@ on:
 env:
   CONFIG_FILE: .config
   UPLOAD_DIR: false
-  UPLOAD_KERNEL: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
@@ -89,14 +88,6 @@ jobs:
         name: ${{ env.FILE_DATE }}
         path: /workdir/upload
 
-    - name: Organize files
-      id: organize
-      if: env.UPLOAD_KERNEL == 'true' && !cancelled()
-      run: |
-        cd /workdir/upload
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "::set-output name=status::success"
-
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
@@ -114,10 +105,10 @@ jobs:
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
+        files: /workdir/upload/*
 
-    - name: Delete workflow runs
-      uses: GitRML/delete-workflow-runs@main
-      with:
-        retain_days: 1
-        keep_minimum_runs: 3
+    #- name: Delete workflow runs
+    #  uses: GitRML/delete-workflow-runs@main
+    #  with:
+    #    retain_days: 1
+    #    keep_minimum_runs: 3
