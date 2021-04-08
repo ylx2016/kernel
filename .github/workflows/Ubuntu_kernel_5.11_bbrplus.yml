@@ -6,16 +6,16 @@
 # Change from P3TERX
 #
 
-name: Ubuntu Kernel 5.11 BBRPLUS TEST
+name: Ubuntu Kernel 5.11 BBRPLUS
 
 on:
   repository_dispatch:
   workflow_dispatch:
-    inputs:
-      ssh:
-        description: 'SSH connection to Actions'
-        required: false
-        default: 'false'
+    #inputs:
+     # ssh:
+      #  description: 'SSH connection to Actions'
+       # required: false
+        #default: 'false'
 
 env:
   CONFIG_FILE: .config
