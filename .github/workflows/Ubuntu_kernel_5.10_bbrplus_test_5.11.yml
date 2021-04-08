@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Build Ubuntu Kernel Test BBRPLUS 5.11
+name: Ubuntu Kernel 5.11 BBRPLUS TEST
 
 on:
   repository_dispatch:
