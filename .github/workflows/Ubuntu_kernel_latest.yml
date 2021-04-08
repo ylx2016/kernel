@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Build Kernel
+name: Build Ubuntu Kernel Latest
 
 on:
   repository_dispatch:
