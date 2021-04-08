@@ -104,7 +104,7 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep '<td><strong>5.10' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Ubuntu_Kernel_$kernel_ver_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Ubuntu_Kernel_${kernel_ver}_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "::set-output name=status::success"
 
@@ -123,12 +123,3 @@ jobs:
       with:
         retain_days: 1
         keep_minimum_runs: 3
-
-    - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@v0.1.0
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
