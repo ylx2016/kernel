@@ -1,0 +1,134 @@
+#
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+#
+# Description: Build Kernel using GitHub Actions
+# Change from P3TERX
+#
+
+name: Build Ubuntu Kernel Test BBRPLUS 5.11
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+
+env:
+  CONFIG_FILE: .config
+  UPLOAD_DIR: true
+  UPLOAD_KERNEL: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo -E sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install build-essential bzip2 gawk gettext git patch unzip htop wget curl -y
+        sudo -E apt-get -qq build-dep linux -y
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo mkdir -p /workdir/upload
+        sudo chown $USER:$GROUPS /workdir
+        sudo chown $USER:$GROUPS /workdir/upload
+
+    - name: Get source code
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        wget -O kernel.tar.xz $kernel_file
+        tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
+
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+    - name: Compile the kernel
+      id: compile
+      working-directory: /workdir
+      run: |
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        cd linux-$kernel_ver
+        wget -O 5.10_bbrplus.patch https://raw.githubusercontent.com/ylx2016/kernel/master/convert_official_linux-5.10.x_src_to_bbrplus.patch
+        patch -p0 < 5.10_bbrplus.patch
+        wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config-5.10.27-bbrplus
+        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
+        echo -e "$(nproc) thread compile"
+        sudo time make -j$(nproc) deb-pkg
+        cd /workdir && mv *.deb /workdir/upload
+        echo "::set-output name=status::success"
+        echo "FILE_DATE=Kernel_Ubuntu_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
+
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Upload
+      uses: actions/upload-artifact@main
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_DIR == 'true'
+      with:
+        name: ${{ env.FILE_DATE }}
+        path: /workdir/upload
+
+    - name: Organize files
+      id: organize
+      if: env.UPLOAD_KERNEL == 'true' && !cancelled()
+      run: |
+        cd /workdir/upload
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "::set-output name=status::success"
+
+    - name: Generate release tag
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      run: |
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        echo "::set-output name=release_tag::Ubuntu_Kernel_$kernel_ver_$(date +"%Y.%m.%d-%H%M")"
+        touch release.txt
+        echo "::set-output name=status::success"
+
+    - name: Upload kernel to release
+      uses: softprops/action-gh-release@v1
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: ${{ env.FIRMWARE }}/*
+
+    - name: Delete workflow runs
+      uses: GitRML/delete-workflow-runs@main
+      with:
+        retain_days: 1
+        keep_minimum_runs: 3
+
+    - name: Remove old Releases
+      uses: dev-drprasad/delete-older-releases@v0.1.0
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+        keep_latest: 3
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
