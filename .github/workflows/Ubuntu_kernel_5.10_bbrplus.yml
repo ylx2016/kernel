@@ -11,11 +11,11 @@ name: Ubuntu Kernel 5.10 BBRPLUS
 on:
   repository_dispatch:
   workflow_dispatch:
-    inputs:
-      ssh:
-        description: 'SSH connection to Actions'
-        required: false
-        default: 'false'
+    #inputs:
+     # ssh:
+      #  description: 'SSH connection to Actions'
+       # required: false
+        #default: 'false'
 
 env:
   CONFIG_FILE: .config
