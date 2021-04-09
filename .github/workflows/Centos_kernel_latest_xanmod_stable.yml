@@ -72,6 +72,12 @@ jobs:
         ../configure --prefix=/usr/local/gcc-10.3.0/ --enable-checking=release --enable-languages=c,c++ --disable-multilib --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu
         time make -j 2
         make install
+        mv /usr/bin/gcc /usr/bin/gcc-4.8
+        mv /usr/bin/g++ /usr/bin/g++-4.8
+        ln -s /usr/local/gcc-10.3.0/bin/gcc /usr/bin/gcc
+        ln -s /usr/local/gcc-10.3.0/bin/g++ /usr/bin/g++
+        mv /usr/lib64/libstdc++.so.6 /usr/lib64/libstdc++.so.6.bak
+        ln -s /usr/local/gcc-10.3.0/lib64/libstdc++.so.6 /usr/lib64/libstdc++.so.6        
         cd /workdir
         wget https://ftp.gnu.org/gnu/m4/m4-1.4.18.tar.xz
         tar xvf m4-1.4.18.tar.xz && cd m4-1.4.18
@@ -82,14 +88,6 @@ jobs:
         tar xvf bison-3.7.2.tar.xz && cd bison-3.7.2
         ./configure
         time make -j 2 && make install
-        #echo "export export PATH=/usr/local/gcc-10.3.0/bin:$PATH" >> /etc/profile
-        #echo "export LD_LIBRARY_PATH=/usr/local/gcc-10.3.0/lib64:$LD_LIBRARY_PATH" >> /etc/profile
-        mv /usr/bin/gcc /usr/bin/gcc-4.8
-        mv /usr/bin/g++ /usr/bin/g++-4.8
-        ln -s /usr/local/gcc-10.3.0/bin/gcc /usr/bin/gcc
-        ln -s /usr/local/gcc-10.3.0/bin/g++ /usr/bin/g++
-        mv /usr/lib64/libstdc++.so.6 /usr/lib64/libstdc++.so.6.bak
-        ln -s /usr/local/gcc-10.3.0/lib64/libstdc++.so.6 /usr/lib64/libstdc++.so.6
 
 
     - name: Get source code
@@ -119,8 +117,6 @@ jobs:
       
         echo -e "$(nproc) thread compile"
         
-
-        source /etc/profile
         sudo time make -j$(nproc) rpm-pkg
         mv /root/rpmbuild/RPMS/* /workdir/upload
         echo "::set-output name=status::success"
