@@ -18,7 +18,6 @@ on:
         #default: 'false'
 
 env:
-  CONFIG_FILE: .config
   UPLOAD_DIR: false
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
