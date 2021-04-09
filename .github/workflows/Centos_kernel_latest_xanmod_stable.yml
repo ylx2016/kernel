@@ -1,0 +1,111 @@
+#
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+#
+# Description: Build Kernel using GitHub Actions
+# Change from P3TERX
+#
+
+name: Centos Kernel XANMOD STABLE
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+   # inputs:
+     # ssh:
+       # description: 'SSH connection to Actions'
+       # required: false
+       # default: 'false'
+
+env:
+  UPLOAD_DIR: false
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: docker.io/centos:7
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      
+    - name: intall deps
+      run: |
+        yum update -y
+        yum install epel-release -y && yum install ansible -y && yum install openssh-clients -y
+        yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl jq htop sudo time patch
+        yum groups install development -y
+        yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
+        yum -y install devtoolset-9 devtoolset-9-libatomic-devel
+        mkdir /github/home/.ssh/ && mkdir /workdir
+
+    - name: Get source code
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
+        xanmod_stable_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
+        $kernel_file=https://github.com/xanmod/linux/archive/$xanmod_stable.zip
+        wget $kernel_file && unzip $xanmod_stable.zip -d /workdir && linux-$xanmod_stable
+        cd /workdir && ls
+        
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}         
+
+    - name: Compile the kernel
+      id: compile
+      working-directory: /workdir
+      run: |
+        xanmod_stable_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
+        xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
+        cd linux-$xanmod_stable
+        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
+        echo -e "$(nproc) thread compile"
+        ln -s /opt/rh/devtoolset-9/root/usr/bin/* /usr/local/bin/
+        sudo time make -j$(nproc) rpm-pkg
+        mv /root/rpmbuild/RPMS/* /workdir/upload
+        echo "::set-output name=status::success"
+        echo "FILE_DATE=Kernel_Centos_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Upload
+      uses: actions/upload-artifact@main
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_DIR == 'true'
+      with:
+        name: ${{ env.FILE_DATE }}
+        path: /workdir/upload
+
+    - name: Generate release tag
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
+        echo "::set-output name=release_tag::Centos_Kernel_${xanmod_stable}_latest_$(date +"%Y.%m.%d-%H%M")"
+        touch release.txt
+        echo "for centos 7" >> release.txt
+        echo "::set-output name=status::success"
+
+    - name: Upload kernel to release
+      uses: softprops/action-gh-release@v1
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: /workdir/upload/*
+
+    #- name: Delete workflow runs
+    #  uses: GitRML/delete-workflow-runs@main
+    #  with:
+    #    retain_days: 1
+    #    keep_minimum_runs: 3
