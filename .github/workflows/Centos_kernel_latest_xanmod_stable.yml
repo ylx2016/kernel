@@ -47,7 +47,7 @@ jobs:
         df -hT $PWD
         xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
         xanmod_stable_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
-        $kernel_file=https://github.com/xanmod/linux/archive/refs/tags/$xanmod_stable.zip
+        kernel_file=https://github.com/xanmod/linux/archive/refs/tags/$xanmod_stable.zip
         wget $kernel_file && unzip $xanmod_stable.zip -d /workdir && linux-$xanmod_stable
         cd /workdir && ls
         
