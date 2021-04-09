@@ -38,8 +38,50 @@ jobs:
         yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl jq htop sudo time patch
         yum groups install development -y
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
-        yum -y install devtoolset-9 devtoolset-9-libatomic-devel
         mkdir /github/home/.ssh/ && mkdir /workdir
+        
+    - name: Compile GCC 10.3
+      run: |
+        cd /workdir
+        wget https://ftp.gnu.org/gnu/make/make-4.3.tar.gz
+        tar zxvf make-4.3.tar.gz && cd make-4.3
+        ./configure
+        make -j 2 && make install
+        ln -s -f /usr/local/bin/make /usr/bin/make
+        cd /workdir
+        wget https://www.cpan.org/src/5.0/perl-5.32.0.tar.xz
+        tar xvf perl-5.32.0.tar.xz && cd perl-5.32.0
+        ./Configure -des -Dprefix=/usr/local/
+        make -j 2 && make install
+        ln -s -f /usr/local/bin/perl /usr/bin/perl
+        cd /workdir
+        wget https://ftp.gnu.org/gnu/texinfo/texinfo-6.7.tar.xz
+        tar xvf texinfo-6.7.tar.xz && cd texinfo-6.7
+        ./configure
+        make -j 2 && make install
+        cd /workdir
+        wget https://www.python.org/ftp/python/3.8.6/Python-3.8.6.tar.xz
+        tar xvf Python-3.8.6.tar.xz && cd Python-3.8.6
+        ./configure
+        make -j 2 && make install
+        cd /workdir
+        wget https://ftp.gnu.org/gnu/gcc/gcc-10.3.0/gcc-10.3.0.tar.xz
+        tar xvf gcc-10.3.0.tar.xz && cd gcc-10.3.0
+        ./contrib/download_prerequisites
+        mkdir build && cd build
+        ../configure --prefix=/usr/local/gcc-10.3.0/ --enable-checking=release --enable-languages=c,c++ --disable-multilib --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu
+        time make -j 2
+        make install
+        cd /workdir
+        wget https://ftp.gnu.org/gnu/m4/m4-1.4.18.tar.xz
+        tar xvf m4-1.4.18.tar.xz && cd m4-1.4.18
+        ./configure
+        time make -j 2 && make install
+        cd /workdir
+        wget https://ftp.gnu.org/gnu/bison/bison-3.7.2.tar.xz
+        tar xvf bison-3.7.2.tar.xz && cd bison-3.7.2
+        ./configure
+        time make -j 2 && make install
 
     - name: Get source code
       working-directory: /workdir
@@ -67,7 +109,7 @@ jobs:
         cd linux-$xanmod_stable
       
         echo -e "$(nproc) thread compile"
-        ln -s /opt/rh/devtoolset-9/root/usr/bin/* /usr/local/bin/
+        
         sudo time make -j$(nproc) rpm-pkg
         mv /root/rpmbuild/RPMS/* /workdir/upload
         echo "::set-output name=status::success"
