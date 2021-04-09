@@ -11,11 +11,11 @@ name: Centos Kernel Latest
 on:
   repository_dispatch:
   workflow_dispatch:
-   # inputs:
-    #  ssh:
-     #   description: 'SSH connection to Actions'
-      #  required: false
-       # default: 'false'
+   inputs:
+     ssh:
+       description: 'SSH connection to Actions'
+       required: false
+       default: 'false'
 
 env:
   UPLOAD_DIR: false
@@ -30,13 +30,19 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
+      
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     - name: intall deps
       run: |
-        yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl
-        yum groups install development -y
-        yum -y install devtoolset-9 devtoolset-9-libatomic-devel
-        scl enable devtoolset-9
+        yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl epel*
+        yum groups install development -y 
+        yum -y install devtoolset-9 devtoolset-9-libatomic-devel htop
 
     - name: Get source code
       working-directory: /workdir
@@ -46,13 +52,6 @@ jobs:
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
-
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     - name: Compile the kernel
       id: compile
