@@ -31,13 +31,6 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
       
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-
     - name: intall deps
       run: |
         yum update -y
@@ -45,6 +38,13 @@ jobs:
         yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl
         yum groups install development -y 
         yum -y install devtoolset-9 devtoolset-9-libatomic-devel htop
+        
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     - name: Get source code
       working-directory: /workdir
