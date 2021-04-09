@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Ubuntu Kernel 5.11 BBRPLUS
+name: Ubuntu Kernel latest BBRPLUS
 
 on:
   repository_dispatch:
