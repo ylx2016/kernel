@@ -40,11 +40,6 @@ jobs:
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
         yum -y install devtoolset-9 devtoolset-9-libatomic-devel
         mkdir /github/home/.ssh/ && mkdir /workdir
-        scl enable devtoolset-9 bash
-        source /opt/rh/devtoolset-9/enable
-        source scl_source enable devtoolset-9
-        gcc -v
-        cancelled()
 
     - name: Get source code
       working-directory: /workdir
@@ -54,6 +49,13 @@ jobs:
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
+        
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}         
 
     - name: Compile the kernel
       id: compile
@@ -66,17 +68,13 @@ jobs:
         wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config-5.10.27-bbrplus
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
-        scl enable devtoolset-9 time make -j$(nproc) rpm-pkg
+        ln -s /opt/rh/devtoolset-9/root/usr/bin/* /usr/local/bin/
+        sudo time make -j$(nproc) rpm-pkg
         cd /workdir && mv *.deb /workdir/upload
         echo "::set-output name=status::success"
         echo "FILE_DATE=Kernel_Centos_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}        
+       
 
     - name: Check space usage
       if: (!cancelled())
