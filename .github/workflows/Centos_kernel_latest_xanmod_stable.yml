@@ -82,6 +82,12 @@ jobs:
         tar xvf bison-3.7.2.tar.xz && cd bison-3.7.2
         ./configure
         time make -j 2 && make install
+        echo "export export PATH=/usr/local/gcc-10.3.0/bin:$PATH" >> /etc/profile
+        echo "export LD_LIBRARY_PATH=/usr/local/gcc-10.3.0/lib64:$LD_LIBRARY_PATH" >> /etc/profile
+        #mv /usr/bin/gcc /usr/bin/gcc-4.8
+        #mv /usr/bin/g++ /usr/bin/g++-4.8
+        #ln -s /usr/local/gcc-10.3.0/bin/gcc /usr/bin/gcc
+        #ln -s /usr/local/gcc-10.3.0/bin/g++ /usr/bin/g++        
 
     - name: Get source code
       working-directory: /workdir
@@ -110,6 +116,8 @@ jobs:
       
         echo -e "$(nproc) thread compile"
         
+
+        source /etc/profile
         sudo time make -j$(nproc) rpm-pkg
         mv /root/rpmbuild/RPMS/* /workdir/upload
         echo "::set-output name=status::success"
