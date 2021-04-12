@@ -79,7 +79,12 @@ jobs:
         ln -s /usr/local/gcc-10.3.0/bin/gcc /usr/bin/gcc
         ln -s /usr/local/gcc-10.3.0/bin/g++ /usr/bin/g++
         mv /usr/lib64/libstdc++.so.6 /usr/lib64/libstdc++.so.6.bak
-        ln -s /usr/local/gcc-10.3.0/lib64/libstdc++.so.6 /usr/lib64/libstdc++.so.6        
+        ln -s /usr/local/gcc-10.3.0/lib64/libstdc++.so.6 /usr/lib64/libstdc++.so.6
+        cd /workdir
+        wget https://ftp.gnu.org/gnu/binutils/binutils-2.36.tar.xz
+        tar xvf binutils-2.36.tar.xz && cd binutils-2.36
+        ./configure --prefix=/usr
+        time make -j 2 && make install
         cd /workdir
         wget https://ftp.gnu.org/gnu/m4/m4-1.4.18.tar.xz
         tar xvf m4-1.4.18.tar.xz && cd m4-1.4.18
