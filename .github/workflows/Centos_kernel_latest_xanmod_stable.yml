@@ -88,6 +88,7 @@ jobs:
         tar xvf bison-3.7.6.tar.xz && cd bison-3.7.6
         ./configure
         time make -j 2 && make install
+        cd /workdir
         wget https://ftp.gnu.org/gnu/glibc/glibc-2.33.tar.xz
         tar xvf glibc-2.33.tar.xz && cd glibc-2.33
         mkdir build && cd build
