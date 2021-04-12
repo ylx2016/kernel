@@ -42,6 +42,7 @@ jobs:
         
     - name: Compile GCC 10.3
       id: gcc
+      continue-on-error: true
       run: |
         cd /workdir
         wget https://ftp.gnu.org/gnu/make/make-4.3.tar.gz
@@ -96,7 +97,6 @@ jobs:
         ../configure  --prefix=/usr --disable-profile --enable-add-ons --with-headers=/usr/include --with-binutils=/usr/bin --disable-sanity-checks --disable-werror
         make -j 2
         make install
-        make localedata/install-locales
         echo "::set-output name=status::success"
 
     - name: Get source code
