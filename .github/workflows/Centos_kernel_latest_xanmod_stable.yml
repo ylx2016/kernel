@@ -60,8 +60,8 @@ jobs:
         ./configure
         make -j 2 && make install
         cd /workdir
-        wget https://www.python.org/ftp/python/3.8.6/Python-3.8.6.tar.xz
-        tar xvf Python-3.8.6.tar.xz && cd Python-3.8.6
+        wget https://www.python.org/ftp/python/3.9.4/Python-3.9.4.tar.xz
+        tar xvf Python-3.9.4.tar.xz && cd Python-3.9.4
         ./configure
         make -j 2 && make install
         cd /workdir
@@ -84,8 +84,8 @@ jobs:
         ./configure
         time make -j 2 && make install
         cd /workdir
-        wget https://ftp.gnu.org/gnu/bison/bison-3.7.2.tar.xz
-        tar xvf bison-3.7.2.tar.xz && cd bison-3.7.2
+        wget https://ftp.gnu.org/gnu/bison/bison-3.7.6.tar.xz
+        tar xvf bison-3.7.6.tar.xz && cd bison-3.7.6
         ./configure
         time make -j 2 && make install
 
