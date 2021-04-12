@@ -88,7 +88,13 @@ jobs:
         tar xvf bison-3.7.6.tar.xz && cd bison-3.7.6
         ./configure
         time make -j 2 && make install
-
+        wget https://ftp.gnu.org/gnu/glibc/glibc-2.33.tar.xz
+        tar xvf glibc-2.33.tar.xz && cd glibc-2.33
+        mkdir build && cd build
+        ../configure  --prefix=/usr --disable-profile --enable-add-ons --with-headers=/usr/include --with-binutils=/usr/bin --disable-sanity-checks --disable-werror
+        make -j 2
+        make install
+        make localedata/install-locales
 
     - name: Get source code
       working-directory: /workdir
