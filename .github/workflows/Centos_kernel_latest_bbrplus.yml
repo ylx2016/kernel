@@ -25,8 +25,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: 
-      image: teddysun/rpmbuild:7
+    container: docker.io/centos:7
     
     steps:
     - name: Checkout
@@ -39,7 +38,7 @@ jobs:
         yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl jq htop sudo time patch
         yum groups install development -y
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
-        #yum -y install devtoolset-9 devtoolset-9-libatomic-devel
+        yum -y install devtoolset-9 devtoolset-9-libatomic-devel
         mkdir /github/home/.ssh/ && mkdir /workdir
 
     - name: Get source code
