@@ -25,7 +25,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    #container: docker.io/centos:7
     container: docker.io/teddysun/rpmbuild:7
     
     steps:
