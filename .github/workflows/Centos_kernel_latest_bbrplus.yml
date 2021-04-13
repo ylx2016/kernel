@@ -25,8 +25,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    #container: docker.io/centos:7
-    container: hub.docker.com/r/teddysun/rpmbuild:7
+    container: 
+      image:teddysun/rpmbuild:7
     
     steps:
     - name: Checkout
