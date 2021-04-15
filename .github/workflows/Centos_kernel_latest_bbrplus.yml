@@ -55,6 +55,7 @@ jobs:
 
     - name: Get source code
       id: code
+      if: steps.check.outputs.status == 'success'
       working-directory: /workdir
       run: |
         df -hT $PWD
