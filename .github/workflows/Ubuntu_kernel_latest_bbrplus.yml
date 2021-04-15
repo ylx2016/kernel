@@ -11,6 +11,8 @@ name: Ubuntu Kernel latest BBRPLUS
 on:
   repository_dispatch:
   workflow_dispatch:
+  schedule:
+    - cron: '33 35 12 ? * 2,4,7'
     #inputs:
      # ssh:
       #  description: 'SSH connection to Actions'
@@ -49,7 +51,7 @@ jobs:
     - name: Check for updates
       id: check
       run: |
-        github_ubuntu_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Ubuntu_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
+        github_ubuntu_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Ubuntu_Kernel' | grep '_latest_bbrplus_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         if [ "$github_ubuntu_ver" == "$kernel_ver" ];then
             echo "::set-output name=status::fail"
@@ -94,7 +96,7 @@ jobs:
         echo "FILE_DATE=Kernel_Ubuntu_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
 
     - name: Check space usage
-      if: (!cancelled())
+      if: (!cancelled()) && steps.compile.outputs.status == 'success'
       run: df -hT
 
     - name: Upload
