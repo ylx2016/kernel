@@ -9,7 +9,6 @@
 name: Centos Kernel XANMOD STABLE GCC9
 
 on:
-  repository_dispatch:
   workflow_dispatch:
    # inputs:
      # ssh:
