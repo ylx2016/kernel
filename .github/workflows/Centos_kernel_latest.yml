@@ -11,7 +11,7 @@ name: Centos Kernel Latest
 on:
   workflow_dispatch:
   schedule:
-    - cron: '* * * ? * 2,4,7'
+    - cron: "* * * ? * 2,4,7"
    # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
