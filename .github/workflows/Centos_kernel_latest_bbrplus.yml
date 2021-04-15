@@ -9,10 +9,9 @@
 name: Centos Kernel Latest BBRPLUS
 
 on:
-  repository_dispatch:
   workflow_dispatch:
   schedule:
-    - cron: '33 35 12 ? * 2,4,7'
+   - cron: "0 21 * * *"
    # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
