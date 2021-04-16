@@ -45,8 +45,8 @@ jobs:
         df -hT $PWD
         #xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
         #xanmod_stable_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
-        xanmod_stable=5.11.8-xanmod1
-        xanmod_stable_ver=5.11.8
+        xanmod_stable=5.10.25-xanmod1
+        xanmod_stable_ver=5.10.25
         kernel_file=https://github.com/xanmod/linux/archive/refs/tags/$xanmod_stable.zip
         wget $kernel_file && unzip $xanmod_stable.zip -d /workdir
         
@@ -64,8 +64,8 @@ jobs:
       run: |
         #xanmod_stable_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
         #xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
-        xanmod_stable=5.11.8-xanmod1
-        xanmod_stable_ver=5.11.8
+        xanmod_stable=5.10.25-xanmod1
+        xanmod_stable_ver=5.10.25
         cd linux-$xanmod_stable
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
@@ -92,8 +92,8 @@ jobs:
       run: |
         #xanmod_stable_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
         #xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
-        xanmod_stable=5.11.8-xanmod1
-        xanmod_stable_ver=5.11.8
+        xanmod_stable=5.10.25-xanmod1
+        xanmod_stable_ver=5.10.25
         #echo "::set-output name=release_tag::Centos_Kernel_${xanmod_stable}_latest_$(date +"%Y.%m.%d-%H%M")"
         echo "::set-output name=release_tag::Centos_Kernel_${xanmod_stable}_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
