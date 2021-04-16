@@ -34,7 +34,7 @@ jobs:
       run: |
         yum update -y
         yum install epel-release -y && yum install ansible -y && yum install openssh-clients -y
-        yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl jq htop sudo time patch zstd
+        yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl jq htop sudo time patch zstd libzstd-devel libzstd-static libknet1-compress-zstd-plugin
         yum groups install development -y
         yum groupinstall "Development Tools"
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
