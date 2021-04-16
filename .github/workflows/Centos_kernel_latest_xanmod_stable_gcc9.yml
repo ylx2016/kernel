@@ -36,6 +36,7 @@ jobs:
         yum install epel-release -y && yum install ansible -y && yum install openssh-clients -y
         yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl jq htop sudo time patch zstd
         yum groups install development -y
+        yum groupinstall "Development Tools"
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
         yum -y install devtoolset-9 devtoolset-9-libatomic-devel
         mkdir /github/home/.ssh/ && mkdir /workdir
