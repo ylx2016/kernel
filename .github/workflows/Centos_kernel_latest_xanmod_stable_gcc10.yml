@@ -6,10 +6,12 @@
 # Change from P3TERX
 #
 
-name: Centos Kernel XANMOD STABLE GCC10
+name: Centos Kernel latest XANMOD STABLE GCC10
 
 on:
   workflow_dispatch:
+  #schedule:
+  #  - cron: "0 21 * * *"
    # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
