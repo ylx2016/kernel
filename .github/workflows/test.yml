@@ -44,15 +44,16 @@ jobs:
         
     - name: Update config
       id: update
+      working-directory: /workdir
       run: |
         sudo apt install -y rpm2cpio 
         elrepo_c7_ver=$(curl -s 'https://elrepo.org/linux/kernel/el7/x86_64/RPMS/?C=N;O=D' | grep 'kernel-ml-headers' | head -n 1 | awk -F '"' '{print $4}' | awk -F '-' '{print $4}')
-        wget https://elrepo.org/linux/kernel/el7/x86_64/RPMS/kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm
-        rpm2cpio kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm | cpio -divm
+        sudo wget https://elrepo.org/linux/kernel/el7/x86_64/RPMS/kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm
+        sudo rpm2cpio kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm | cpio -divm
         cd /workdir/boot
-        patch -p1 < ~/work/kernel/kernel/elrepo_config.patch config-*-1.el7.elrepo.x86_64
-        rm -rf /work/kernel/kernel/config_elrepo
-        mv config-*-1.el7.elrepo.x86_64 ~/work/kernel/kernel/config_elrepo
+        sudo patch -p1 < ~/work/kernel/kernel/elrepo_config.patch config-*-1.el7.elrepo.x86_64
+        sudo rm -rf /work/kernel/kernel/config_elrepo
+        sudo mv config-*-1.el7.elrepo.x86_64 ~/work/kernel/kernel/config_elrepo
         cat ~/work/kernel/kernel/config_elrepo
         echo "::set-output name=status::success"
         
