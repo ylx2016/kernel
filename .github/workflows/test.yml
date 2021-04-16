@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Ubuntu Kernel latest BBRPLUS
+name: Test
 
 on:
   workflow_dispatch:
