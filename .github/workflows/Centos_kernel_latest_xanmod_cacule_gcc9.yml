@@ -11,7 +11,7 @@ name: Centos Kernel latest XANMOD cacule GCC9
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 21 * * *"
+    - cron: "30 20 * * 1,5"
    # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
