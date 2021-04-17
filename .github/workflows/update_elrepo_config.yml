@@ -11,11 +11,11 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 20 * * *"
-    inputs:
-      ssh:
-        description: 'SSH connection to Actions'
-        required: false
-        default: 'false'
+    #inputs:
+    #  ssh:
+    #    description: 'SSH connection to Actions'
+    #    required: false
+    #    default: 'false'
 
 env:
   TZ: Asia/Shanghai
