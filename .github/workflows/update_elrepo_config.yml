@@ -68,4 +68,4 @@ jobs:
       env:
         DOWNSTREAM_BRANCH: master
         TZ: Asia/Shanghai
-      run: sudo git push origin $DOWNSTREAM_BRANCH
+      run: sudo git push origin master
