@@ -8,6 +8,7 @@
 name: Update elrepo config
 
 on:
+  push:
   workflow_dispatch:
     #inputs:
     #  ssh:
