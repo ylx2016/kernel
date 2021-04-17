@@ -48,7 +48,7 @@ jobs:
       run: |
         github_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep 'xanmod1_lts_latest_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}' | awk -F '[-]' '{print $1}')
         kernel_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
-        if [ "$github_ubuntu_ver" == "$kernel_ver" ];then
+        if [ "$github_ver" == "$kernel_ver" ];then
             echo "::set-output name=status::fail"
         else
             echo "::set-output name=status::success"
