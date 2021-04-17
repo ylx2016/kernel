@@ -42,8 +42,22 @@ jobs:
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
         yum -y install devtoolset-9 devtoolset-9-libatomic-devel
         mkdir /github/home/.ssh/ && mkdir /workdir
+
+    - name: Check for updates
+      id: check
+      run: |
+        github_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep 'xanmod1_latest_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
+        kernel_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
+        if [ "$github_ver" == "$kernel_ver" ];then
+            echo "::set-output name=status::fail"
+        else
+            echo "::set-output name=status::success"
+        fi
+        
     - name: Get source code
       working-directory: /workdir
+      id: code
+      if: steps.check.outputs.status == 'success' && (!cancelled())
       run: |
         df -hT $PWD
         xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
@@ -63,6 +77,7 @@ jobs:
 
     - name: Compile the kernel
       id: compile
+      if: steps.code.outputs.status == 'success' && (!cancelled())
       working-directory: /workdir
       run: |
         xanmod_stable_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
