@@ -11,7 +11,7 @@ name: Ubuntu Kernel latest BBRPLUS
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 21 * * *"
+    - cron: "39 20 * * 1,6"
     #inputs:
      # ssh:
       #  description: 'SSH connection to Actions'
