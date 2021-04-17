@@ -97,7 +97,7 @@ jobs:
         xanmod_lts=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
         #xanmod_lts=5.10.25-xanmod2
         #xanmod_lts_ver=5.10.25
-        echo "::set-output name=release_tag::Centos_Kernel_${xanmod_lts}_latest_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Centos_Kernel_${xanmod_lts}_lts_latest_$(date +"%Y.%m.%d-%H%M")"
         #echo "::set-output name=release_tag::Centos_Kernel_${xanmod_lts}_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 7" >> release.txt
