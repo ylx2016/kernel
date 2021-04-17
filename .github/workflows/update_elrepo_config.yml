@@ -10,7 +10,7 @@ name: Update elrepo config
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 20 * * *"
+    - cron: "30 20 * * 1,4"
     #inputs:
     #  ssh:
     #    description: 'SSH connection to Actions'
