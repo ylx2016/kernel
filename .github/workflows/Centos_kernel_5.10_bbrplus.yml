@@ -9,7 +9,6 @@
 name: Centos Kernel 5.10 BBRPLUS
 
 on:
-  repository_dispatch:
   workflow_dispatch:
    # inputs:
      # ssh:
