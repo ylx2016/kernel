@@ -9,14 +9,14 @@ name: Update elrepo config
 
 on:
   workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
   schedule:
     - cron: "30 20 * * 1,4"
-    #inputs:
-    #  ssh:
-    #    description: 'SSH connection to Actions'
-    #    required: false
-    #    default: 'false'
-
+    
 env:
   TZ: Asia/Shanghai
 
