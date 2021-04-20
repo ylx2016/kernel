@@ -42,7 +42,7 @@ jobs:
         yum groups install development -y
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync tmux -y
         dnf --enablerepo=powertools install glibc-static -y
-        yum -y install gcc-toolset-10-gcc
+        #yum -y install gcc-toolset-10-gcc
         mkdir /github/home/.ssh/ && mkdir /workdir
         
     - name: Check for updates  
@@ -88,7 +88,7 @@ jobs:
         #make oldconfig
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
-        ln -s /opt/rh/devtoolset-9/root/usr/bin/* /usr/local/bin/
+        #ln -s /opt/rh/gcc-toolset-10/root/usr/bin/* /usr/local/bin/
         sudo time make -j$(nproc) rpm-pkg
         mv /root/rpmbuild/RPMS/* /workdir/upload
         echo "::set-output name=status::success"
