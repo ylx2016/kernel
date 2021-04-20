@@ -49,7 +49,8 @@ jobs:
       id: check
       run: |
         #action_kernel_ver=$(curl -s https://raw.githubusercontent.com/ylx2016/kernel/master/config_elrepo | grep "Linux/x86_64" | awk -F '[-]' '{print $1}' | awk -F ' ' '{print $3}')
-        action_kernel_ver=$(grep "Linux/x86_64" /home/runner/work/kernel/kernel/config_elrepo | awk -F '[-]' '{print $1}' | awk -F ' ' '{print $3}')
+        config=$(find / -name config_elrepo | grep 'elrepo' | head -n 1)
+        action_kernel_ver=$(grep "Linux/x86_64" ${config} | awk -F '[-]' '{print $1}' | awk -F ' ' '{print $3}')
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
          if [ "$action_kernel_ver" == "$kernel_ver" ];then
             echo "::set-output name=status::fail"
@@ -67,10 +68,12 @@ jobs:
         sudo wget https://elrepo.org/linux/kernel/el7/x86_64/RPMS/kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm
         sudo rpm2cpio kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm | cpio -divm
         cd /workdir/boot
-        sudo patch -p1 < /home/runner/work/kernel/kernel/elrepo_config.patch config-*-1.el7.elrepo.x86_64
-        sudo rm -rf /home/runner/work/kernel/kernel/config_elrepo
-        sudo mv config-*-1.el7.elrepo.x86_64 /home/runner/work/kernel/kernel/config_elrepo
-        cat /home/runner/work/kernel/kernel/config_elrepo
+        elrepo_patch=$(find / -name elrepo_config.patch | grep 'elrepo' | head -n 1)
+        config=$(find / -name config_elrepo | grep 'elrepo' | head -n 1)
+        sudo patch -p1 < ${elrepo_patch} config-*-1.el7.elrepo.x86_64
+        sudo rm -rf ${config}
+        sudo mv config-*-1.el7.elrepo.x86_64 ${config}
+        cat ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
