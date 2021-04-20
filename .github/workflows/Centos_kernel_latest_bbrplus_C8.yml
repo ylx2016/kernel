@@ -39,9 +39,10 @@ jobs:
       run: |
         yum update -y
         yum install epel-release -y && yum install ansible -y && yum install openssh-clients -y
-        yum install -y wget tar gcc automake autoconf libtool make zip unzip scl-utils bzip2 wget curl jq htop sudo time patch
+        yum install -y wget tar gcc automake autoconf libtool make zip unzip scl-utils bzip2 wget curl jq htop sudo time patch zstd libzstd-devel
         yum groups install development -y
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync tmux -y
+        dnf --enablerepo=powertools install glibc-static -y
         #yum -y install gcc-toolset-9-gcc gcc-toolset-9-gcc-c++
         mkdir /github/home/.ssh/ && mkdir /workdir
         
