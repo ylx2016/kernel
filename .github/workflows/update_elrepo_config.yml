@@ -15,7 +15,7 @@ on:
     #    required: false
     #    default: 'false'
   schedule:
-    - cron: "30 20 * * 1,4"
+    - cron: "30 20 * * *"
     
 env:
   TZ: Asia/Shanghai
@@ -92,5 +92,5 @@ jobs:
       if: steps.update.outputs.status == 'success'
       uses: ad-m/github-push-action@master
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+        github_token: ${{ secrets.TOKEN }}
         branch: ${{ github.ref }}
