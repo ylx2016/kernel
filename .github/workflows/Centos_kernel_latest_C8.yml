@@ -48,7 +48,7 @@ jobs:
     - name: Check for updates  
       id: check
       run: |
-        github_centos_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep '_latest_bbr_C8_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
+        github_centos_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep '_latest_C8_bbr_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         if [ "$github_centos_ver" == "$kernel_ver" ];then
             echo "::set-output name=status::fail"
@@ -110,7 +110,7 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_bbr_C8_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_C8_bbr_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 8" >> release.txt
         echo "test file" >> release.txt
