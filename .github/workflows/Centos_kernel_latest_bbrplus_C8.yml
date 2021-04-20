@@ -10,8 +10,8 @@ name: Centos Kernel Latest BBRPLUS C8
 
 on:
   workflow_dispatch:
-  #schedule:
-   #- cron: "39 20 * * 2,4"
+  schedule:
+   - cron: "39 20 * * 2,4"
    # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
@@ -38,8 +38,8 @@ jobs:
         yum install epel-release -y && yum install ansible -y && yum install openssh-clients -y
         yum install -y wget tar gcc automake autoconf libtool make zip unzip scl-utils bzip2 wget curl jq htop sudo time patch
         yum groups install development -y
-        yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync tmux -y
-        #yum -y install gcc-toolset-9-gcc gcc-toolset-9-gcc-c++
+        yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
+        yum -y install gcc-toolset-9-gcc gcc-toolset-9-gcc-c++
         mkdir /github/home/.ssh/ && mkdir /workdir
         
     - name: Check for updates
@@ -79,12 +79,12 @@ jobs:
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
-        cp /home/runner/work/kernel/kernel/convert_official_linux-5.10.x_src_to_bbrplus.patch /workdir/linux-${kernel_ver}/5.10_bbrplus.patch
+        cp ~/work/kernel/kernel/convert_official_linux-5.10.x_src_to_bbrplus.patch /workdir/linux-${kernel_ver}/5.10_bbrplus.patch
         patch -p0 < 5.10_bbrplus.patch
-        cp /home/runner/work/kernel/kernel/config-5.10.27-bbrplus /workdir/linux-${kernel_ver}/.config
+        cp ~/work/kernel/kernel/config-5.10.27-bbrplus /workdir/linux-${kernel_ver}/.config
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
-        #ln -s /opt/rh/gcc-toolset-10/root/usr/bin/* /usr/local/bin/
+        ln -s /opt/rh/gcc-toolset-10/root/usr/bin/* /usr/local/bin/
         sudo time make -j$(nproc) rpm-pkg
         mv /root/rpmbuild/RPMS/* /workdir/upload
         echo "::set-output name=status::success"
