@@ -10,13 +10,13 @@ name: Centos Kernel latest XANMOD cacule GCC9 C8
 
 on:
   workflow_dispatch:
-   inputs:
-      ssh:
-        description: 'SSH connection to Actions'
-        required: false
-        default: 'false'
-  #schedule:
-    #- cron: "38 20 * * 1,4"
+   #inputs:
+   #   ssh:
+   #     description: 'SSH connection to Actions'
+   #     required: false
+   #     default: 'false'
+  schedule:
+    - cron: "38 20 * * 3,6"
 
 env:
   UPLOAD_DIR: false
@@ -113,7 +113,7 @@ jobs:
         xanmod_cacule=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
         #xanmod_cacule=5.10.25-xanmod2
         #xanmod_cacule_ver=5.10.25
-        echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_latest_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_latest_C8_$(date +"%Y.%m.%d-%H%M")"
         #echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_C8_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 8" >> release.txt
