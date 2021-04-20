@@ -16,7 +16,7 @@ on:
    #     required: false
    #     default: 'false'
   schedule:
-    - cron: "38 20 * * 3,7"
+    - cron: "38 20 * * 2,6"
 
 env:
   UPLOAD_DIR: false
