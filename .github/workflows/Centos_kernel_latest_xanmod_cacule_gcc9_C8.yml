@@ -66,6 +66,7 @@ jobs:
         #xanmod_cacule_ver=5.10.25
         kernel_file=https://github.com/xanmod/linux/archive/refs/tags/$xanmod_cacule.zip
         wget $kernel_file && unzip $xanmod_cacule.zip -d /workdir
+        echo "::set-output name=status::success"
         
         
     - name: SSH connection to Actions
