@@ -67,10 +67,10 @@ jobs:
         sudo wget https://elrepo.org/linux/kernel/el7/x86_64/RPMS/kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm
         sudo rpm2cpio kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm | cpio -divm
         cd /workdir/boot
-        sudo patch -p1 < ~/work/kernel/kernel/elrepo_config.patch config-*-1.el7.elrepo.x86_64
-        sudo rm -rf /work/kernel/kernel/config_elrepo
-        sudo mv config-*-1.el7.elrepo.x86_64 ~/work/kernel/kernel/config_elrepo
-        cat ~/work/kernel/kernel/config_elrepo
+        sudo patch -p1 < /home/runner/work/kernel/kernel/elrepo_config.patch config-*-1.el7.elrepo.x86_64
+        sudo rm -rf /home/runner/work/kernel/kernel/config_elrepo
+        sudo mv config-*-1.el7.elrepo.x86_64 /home/runner/work/kernel/kernel/config_elrepo
+        cat /home/runner/work/kernel/kernel/config_elrepo
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
