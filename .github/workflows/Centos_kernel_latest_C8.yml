@@ -42,7 +42,7 @@ jobs:
         yum groups install development -y
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync tmux -y
         dnf --enablerepo=powertools install glibc-static -y
-        yum -y install gcc-toolset-10 gcc-toolset-10-gcc
+        yum -y install gcc-toolset-10-gcc
         mkdir /github/home/.ssh/ && mkdir /workdir
         
     - name: Check for updates  
