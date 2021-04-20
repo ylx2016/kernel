@@ -10,13 +10,14 @@ name: Centos Kernel Latest BBRPLUS C8
 
 on:
   workflow_dispatch:
-  schedule:
-   - cron: "39 20 * * 2,4"
-   # inputs:
+  # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
        # required: false
        # default: 'false'
+  #schedule:
+   #- cron: "39 20 * * 2,4"
+   
 
 env:
   UPLOAD_DIR: false
