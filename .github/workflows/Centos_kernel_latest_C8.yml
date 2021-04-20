@@ -10,13 +10,13 @@ name: Centos Kernel Latest C8
 
 on:
   workflow_dispatch:
-   inputs:
-      ssh:
-        description: 'SSH connection to Actions'
-        required: false
-        default: 'false'
-  #schedule:
-    #- cron: "38 20 * * 1,4"
+   #inputs:
+   #   ssh:
+   #     description: 'SSH connection to Actions'
+   #     required: false
+   #     default: 'false'
+  schedule:
+    - cron: "38 20 * * 3,7"
 
 env:
   UPLOAD_DIR: false
