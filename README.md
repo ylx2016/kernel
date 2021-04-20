@@ -10,5 +10,3 @@ https://github.com/UJX6N
 
 xanmod from
 https://xanmod.org/
-
-...............
