@@ -82,9 +82,11 @@ jobs:
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
-        cp ~/work/kernel/kernel/convert_official_linux-5.10.x_src_to_bbrplus.patch /workdir/linux-${kernel_ver}/5.10_bbrplus.patch
+        patch=$(find / -name convert_official_linux-5.10.x_src_to_bbrplus.patch | grep 'convert' | head -n 1)
+        cp $patch /workdir/linux-${kernel_ver}/5.10_bbrplus.patch
         patch -p0 < 5.10_bbrplus.patch
-        cp ~/work/kernel/kernel/config-5.10.27-bbrplus /workdir/linux-${kernel_ver}/.config
+        bbrplus_config=$(find / -name config-5.10.27-bbrplus | grep 'bbrplus' | head -n 1)
+        cp $bbrplus_config /workdir/linux-${kernel_ver}/.config
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
         #ln -s /opt/rh/gcc-toolset-10/root/usr/bin/* /usr/local/bin/
