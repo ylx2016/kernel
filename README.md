@@ -10,3 +10,6 @@ https://github.com/UJX6N
 
 xanmod from
 https://xanmod.org/
+
+关联内核脚本
+https://github.com/ylx2016/Linux-NetSpeed
