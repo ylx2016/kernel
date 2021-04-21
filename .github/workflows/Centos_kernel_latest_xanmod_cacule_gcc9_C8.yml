@@ -116,7 +116,6 @@ jobs:
         echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_C8_latest_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 8" >> release.txt
-        echo "test file" >> release.txt
         echo "::set-output name=status::success"
         
     - name: Upload kernel to release
