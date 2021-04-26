@@ -69,7 +69,8 @@ jobs:
         sudo wget https://elrepo.org/linux/kernel/el7/x86_64/RPMS/kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm
         sudo rpm2cpio kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm | cpio -divm
         cd /workdir/boot
-        elrepo_patch=$(find / -name elrepo_config.patch | grep 'elrepo' | head -n 1)
+        #elrepo_patch=$(find / -name elrepo_config.patch | grep 'elrepo' | head -n 1)
+        elrepo_patch=/home/runner/work/kernel/kernel/elrepo_config.patch
         #config=$(find / -name config_elrepo | grep 'elrepo' | head -n 1)
         config=/home/runner/work/kernel/kernel/config_elrepo
         sudo patch -p1 < ${elrepo_patch} config-*-1.el7.elrepo.x86_64
