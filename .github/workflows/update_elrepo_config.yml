@@ -52,7 +52,7 @@ jobs:
         #config=$(find / -name config_elrepo | grep 'elrepo' | head -n 1)
         config=/home/runner/work/kernel/kernel/config_elrepo
         action_kernel_ver=$(grep "Linux/x86_64" ${config} | awk -F '[-]' '{print $1}' | awk -F ' ' '{print $3}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
          if [ "$action_kernel_ver" == "$kernel_ver" ];then
             echo "::set-output name=status::fail"
         else
