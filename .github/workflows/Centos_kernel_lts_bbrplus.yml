@@ -6,12 +6,10 @@
 # Change from P3TERX
 #
 
-name: Centos Kernel Latest BBRPLUS
+name: Centos Kernel LTS BBRPLUS
 
 on:
   workflow_dispatch:
-  schedule:
-   - cron: "39 20 * * 2,4"
    # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
@@ -41,29 +39,15 @@ jobs:
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
         yum -y install devtoolset-9 devtoolset-9-libatomic-devel
         mkdir /github/home/.ssh/ && mkdir /workdir
-        
-    - name: Check for updates
-      id: check
-      run: |
-        github_centos_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep '_latest_bbrplus_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
-        if [ "$github_centos_ver" == "$kernel_ver" ];then
-            echo "::set-output name=status::fail"
-        else
-            echo "::set-output name=status::success"
-        fi        
 
     - name: Get source code
-      id: code
-      if: steps.check.outputs.status == 'success'
       working-directory: /workdir
       run: |
         df -hT $PWD
-        kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_file=https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$kernel_ver.tar.xz
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
-        echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
@@ -74,10 +58,9 @@ jobs:
 
     - name: Compile the kernel
       id: compile
-      if: steps.code.outputs.status == 'success'
       working-directory: /workdir
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
         wget -O 5.10_bbrplus.patch https://raw.githubusercontent.com/ylx2016/kernel/master/convert_official_linux-5.10.x_src_to_bbrplus.patch
         patch -p0 < 5.10_bbrplus.patch
@@ -91,7 +74,7 @@ jobs:
         echo "FILE_DATE=Kernel_Centos_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         
     - name: Check space usage
-      if: (!cancelled()) && steps.compile.outputs.status == 'success'
+      if: (!cancelled())
       run: df -hT
 
     - name: Upload
@@ -105,10 +88,10 @@ jobs:
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_bbrplus_$(date +"%Y.%m.%d-%H%M")"
+        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_bbrplus_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
-        echo "only for Cloud VMs" >> release.txt
+        echo "for Cloud VMs" >> release.txt
         echo "for centos 7" >> release.txt
         echo "::set-output name=status::success"
 
@@ -116,9 +99,14 @@ jobs:
       uses: softprops/action-gh-release@v1
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
-        #GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
         files: /workdir/upload/*
+
+    #- name: Delete workflow runs
+    #  uses: GitRML/delete-workflow-runs@main
+    #  with:
+    #    retain_days: 1
+    #    keep_minimum_runs: 3

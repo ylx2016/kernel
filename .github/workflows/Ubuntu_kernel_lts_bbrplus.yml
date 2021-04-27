@@ -6,18 +6,15 @@
 # Change from P3TERX
 #
 
-name: Ubuntu Kernel Latest
+name: Ubuntu Kernel LTS BBRPLUS
 
 on:
   workflow_dispatch:
-  schedule:
-    #- cron: "36 20 * * 2,6"
-    - cron: "36 20 * * *"
-   # inputs:
-    #  ssh:
-     #   description: 'SSH connection to Actions'
-      #  required: false
-       # default: 'false'
+    #inputs:
+     # ssh:
+      #  description: 'SSH connection to Actions'
+       # required: false
+        #default: 'false'
 
 env:
   UPLOAD_DIR: false
@@ -48,28 +45,14 @@ jobs:
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
 
-    - name: Check for updates
-      id: check
-      run: |
-        github_ubuntu_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Ubuntu_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
-        if [ "$github_ubuntu_ver" == "$kernel_ver" ];then
-            echo "::set-output name=status::fail"
-        else
-            echo "::set-output name=status::success"
-        fi
-
     - name: Get source code
-      id: code
       working-directory: /workdir
-      if: steps.check.outputs.status == 'success'
       run: |
         df -hT $PWD
-        kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_file=https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$kernel_ver.tar.xz
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
-        echo "::set-output name=status::success"
 
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
@@ -80,12 +63,13 @@ jobs:
 
     - name: Compile the kernel
       id: compile
-      if: steps.code.outputs.status == 'success'
       working-directory: /workdir
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
-        wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config_elrepo
+        wget -O 5.10_bbrplus.patch https://raw.githubusercontent.com/ylx2016/kernel/master/convert_official_linux-5.10.x_src_to_bbrplus.patch
+        patch -p0 < 5.10_bbrplus.patch
+        wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config-5.10.27-bbrplus
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) deb-pkg
@@ -94,7 +78,7 @@ jobs:
         echo "FILE_DATE=Kernel_Ubuntu_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
 
     - name: Check space usage
-      if: (!cancelled()) && steps.compile.outputs.status == 'success'
+      if: (!cancelled())
       run: df -hT
 
     - name: Upload
@@ -108,9 +92,10 @@ jobs:
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Ubuntu_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")"
+        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        echo "::set-output name=release_tag::Ubuntu_Kernel_${kernel_ver}_bbrplus_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
+        echo "only for Cloud VMs" >> release.txt
         echo "::set-output name=status::success"
 
     - name: Upload kernel to release
