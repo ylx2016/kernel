@@ -46,7 +46,7 @@ jobs:
       id: check
       run: |
         github_centos_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep '_latest_bbrplus_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep 'https://git.kernel.org/stable/h/' | head -n 1 | awk -F 'v' '{print $2}' | awk -F '["]' '{print $1}')
         if [ "$github_centos_ver" == "$kernel_ver" ];then
             echo "::set-output name=status::fail"
         else
@@ -60,7 +60,7 @@ jobs:
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep 'https://git.kernel.org/stable/h/' | head -n 1 | awk -F 'v' '{print $2}' | awk -F '["]' '{print $1}')
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
         echo "::set-output name=status::success"
@@ -77,7 +77,7 @@ jobs:
       if: steps.code.outputs.status == 'success'
       working-directory: /workdir
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep 'https://git.kernel.org/stable/h/' | head -n 1 | awk -F 'v' '{print $2}' | awk -F '["]' '{print $1}')
         cd linux-$kernel_ver
         wget -O 5.10_bbrplus.patch https://raw.githubusercontent.com/ylx2016/kernel/master/convert_official_linux-5.10.x_src_to_bbrplus.patch
         patch -p0 < 5.10_bbrplus.patch
@@ -105,7 +105,7 @@ jobs:
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep 'https://git.kernel.org/stable/h/' | head -n 1 | awk -F 'v' '{print $2}' | awk -F '["]' '{print $1}')
         echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_bbrplus_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "only for Cloud VMs" >> release.txt
