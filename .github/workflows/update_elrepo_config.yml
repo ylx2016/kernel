@@ -57,7 +57,7 @@ jobs:
         echo "kernel_ver=" $kernel_ver
         result=$(echo $action_kernel_ver | grep "${kernel_ver}")
         #if [ $action_kernel_ver =~ *$kernel_ver* ];then
-        if [[ "$result" != "" ]]
+        if [[ "$result" != "" ]];then
             echo "::set-output name=status::fail"
         else
             echo "::set-output name=status::success"
