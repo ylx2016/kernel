@@ -56,15 +56,10 @@ jobs:
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         echo "github_ver=" $github_ver
         echo "kernel_ver=" $kernel_ver
-        #$github_ver="5.12.0"
-        result=$(echo $github_ver | grep "${kernel_ver}")
-        #if [[ "$result" != "" ]];then
-        if [ $result -eq 0 ]
-            echo "::set-output name=status::fail"
-        else
-            echo "::set-output name=status::success"
-        fi
-        echo ${{steps.check.outputs.status}}
+        case "$github_ver" in
+            *"$kernel_ver"*) echo echo "::set-output name=status::fail"
+            *) "::set-output name=status::success"
+        esac
 
     - name: Get source code
       working-directory: /workdir
