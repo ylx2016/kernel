@@ -51,9 +51,13 @@ jobs:
     - name: Check for updates
       id: check
       run: |
-        github_ubuntu_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Ubuntu_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
-        if [ "$github_ubuntu_ver" == "$kernel_ver" ];then
+        github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Ubuntu_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
+        github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag}  | grep 'deb' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}' | awk -F '[_]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        echo "github_ver=" $github_ver
+        echo "kernel_ver=" $kernel_ver
+        result=$(echo $github_ver | grep "${kernel_ver}")
+        if [[ "$result" != "" ]];then
             echo "::set-output name=status::fail"
         else
             echo "::set-output name=status::success"
@@ -66,7 +70,7 @@ jobs:
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
         echo "::set-output name=status::success"
@@ -83,7 +87,7 @@ jobs:
       if: steps.code.outputs.status == 'success'
       working-directory: /workdir
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
         wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config_elrepo
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
@@ -108,7 +112,7 @@ jobs:
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/stable/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         echo "::set-output name=release_tag::Ubuntu_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "::set-output name=status::success"
