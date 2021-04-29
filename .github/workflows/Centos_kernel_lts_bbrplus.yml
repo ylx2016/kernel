@@ -89,7 +89,7 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_bbrplus_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_LTS_bbrplus_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for Cloud VMs" >> release.txt
         echo "for centos 7" >> release.txt
