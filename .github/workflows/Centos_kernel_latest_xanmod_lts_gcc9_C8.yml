@@ -1,0 +1,132 @@
+#
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+#
+# Description: Build Kernel using GitHub Actions
+# Change from P3TERX
+#
+
+name: Centos Kernel latest XANMOD cacule GCC9 C8
+
+on:
+  workflow_dispatch:
+   #inputs:
+   #   ssh:
+   #     description: 'SSH connection to Actions'
+   #     required: false
+   #     default: 'false'
+  schedule:
+    - cron: "38 20 * * 3,6"
+
+env:
+  UPLOAD_DIR: false
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: docker.io/centos:8
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      
+    - name: intall deps
+      run: |
+        yum update -y
+        yum install epel-release -y && yum install ansible -y && yum install openssh-clients -y
+        yum install -y wget tar gcc automake autoconf libtool make zip unzip scl-utils bzip2 wget curl jq htop sudo time patch zstd libzstd-devel
+        yum groups install development -y
+        yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync tmux -y
+        dnf --enablerepo=powertools install glibc-static -y
+        #yum -y install gcc-toolset-10-gcc
+        mkdir /github/home/.ssh/ && mkdir /workdir
+
+    - name: Check for updates
+      id: check
+      run: |
+        github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep '_lts_C8_latest_' | grep 'xanmod' | head -n 1 | awk -F '"' '{print $4}')
+        github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag} | grep 'rpm' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}')
+        kernel_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
+        echo "github_ver=" $github_ver
+        echo "kernel_ver=" $kernel_ver
+        if [[ $github_ver == *"$kernel_ver"* ]]; then
+            echo "::set-output name=status::fail"
+        else
+            echo "::set-output name=status::success"
+        fi
+        
+    - name: Get source code
+      id: code
+      if: steps.check.outputs.status == 'success' && (!cancelled())
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        xanmod_cacule=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
+        xanmod_cacule_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
+        #xanmod_cacule=5.10.25-xanmod2
+        #xanmod_cacule_ver=5.10.25
+        kernel_file=https://github.com/xanmod/linux/archive/refs/tags/$xanmod_cacule.zip
+        wget $kernel_file && unzip $xanmod_cacule.zip -d /workdir
+        echo "::set-output name=status::success"
+        
+        
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}         
+
+    - name: Compile the kernel
+      id: compile
+      if: steps.code.outputs.status == 'success' && (!cancelled())
+      working-directory: /workdir
+      run: |
+        xanmod_cacule_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
+        xanmod_cacule=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
+        #xanmod_cacule=5.10.25-xanmod2
+        #xanmod_cacule_ver=5.10.25
+        cd linux-$xanmod_cacule
+        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
+        echo -e "$(nproc) thread compile"
+        #ln -s /opt/rh/gcc-toolset-10/root/usr/bin/* /usr/local/bin/
+        sudo time make -j$(nproc) rpm-pkg
+        mv /root/rpmbuild/RPMS/* /workdir/upload
+        echo "::set-output name=status::success"
+        echo "FILE_DATE=Kernel_Centos_${xanmod_cacule}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Upload
+      uses: actions/upload-artifact@main
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_DIR == 'true'
+      with:
+        name: ${{ env.FILE_DATE }}
+        path: /workdir/upload
+
+    - name: Generate release tag
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        xanmod_cacule_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
+        xanmod_cacule=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/lts/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
+        #xanmod_cacule=5.10.25-xanmod2
+        #xanmod_cacule_ver=5.10.25
+        echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_lts_C8_latest_$(date +"%Y.%m.%d-%H%M")"
+        touch release.txt
+        echo "for centos 8" >> release.txt
+        echo "::set-output name=status::success"
+        
+    - name: Upload kernel to release
+      uses: softprops/action-gh-release@v1
+      if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: /workdir/upload/*
