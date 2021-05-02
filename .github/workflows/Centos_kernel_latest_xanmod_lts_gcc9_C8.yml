@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Centos Kernel latest XANMOD LTS GCC9 C8
+name: Centos Kernel latest XANMOD LTS C8
 
 on:
   workflow_dispatch:
