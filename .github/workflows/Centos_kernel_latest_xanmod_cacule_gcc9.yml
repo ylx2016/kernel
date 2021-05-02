@@ -65,11 +65,9 @@ jobs:
         df -hT $PWD
         xanmod_cacule=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
         xanmod_cacule_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
-        #xanmod_cacule=5.10.25-xanmod2
-        #xanmod_cacule_ver=5.10.25
         kernel_file=https://github.com/xanmod/linux/archive/refs/tags/$xanmod_cacule.zip
         wget $kernel_file && unzip $xanmod_cacule.zip -d /workdir
-        
+        echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
@@ -85,8 +83,6 @@ jobs:
       run: |
         xanmod_cacule_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
         xanmod_cacule=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
-        #xanmod_cacule=5.10.25-xanmod2
-        #xanmod_cacule_ver=5.10.25
         cd linux-$xanmod_cacule
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
@@ -113,8 +109,6 @@ jobs:
       run: |
         xanmod_cacule_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
         xanmod_cacule=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
-        #xanmod_cacule=5.10.25-xanmod2
-        #xanmod_cacule_ver=5.10.25
         echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_cacule_latest_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 7" >> release.txt
