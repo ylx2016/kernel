@@ -46,9 +46,12 @@ jobs:
     - name: Check for updates
       id: check
       run: |
-        github_ver=$(curl -s 'https://github.com/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep 'xanmod1-cacule_latest_' | head -n 1 | awk -F '"' '{print $2}' | awk -F '_' '{print $3}' | awk -F '[-]' '{print $1}')
+        github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep '_cacule_latest_' | grep 'xanmod' | head -n 1 | awk -F '"' '{print $4}')
+        github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag} | grep 'rpm' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}')
         kernel_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
-        if [ "$github_ver" == "$kernel_ver" ];then
+        echo "github_ver=" $github_ver
+        echo "kernel_ver=" $kernel_ver
+        if [[ $github_ver == *"$kernel_ver"* ]]; then
             echo "::set-output name=status::fail"
         else
             echo "::set-output name=status::success"
@@ -112,8 +115,7 @@ jobs:
         xanmod_cacule=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/cacule/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
         #xanmod_cacule=5.10.25-xanmod2
         #xanmod_cacule_ver=5.10.25
-        echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_latest_$(date +"%Y.%m.%d-%H%M")"
-        #echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Centos_Kernel_${xanmod_cacule}_cacule_latest_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 7" >> release.txt
         echo "::set-output name=status::success"
