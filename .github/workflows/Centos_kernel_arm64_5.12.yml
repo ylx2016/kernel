@@ -40,7 +40,7 @@ jobs:
         yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl jq htop sudo time patch
         yum groups install development -y
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
-        yum isntall https://yum.oracle.com/repo/OracleLinux/OL7/developer/x86_64/getPackage/cross-gcc-common-7.3.0-1.0.3.el7.noarch.rpm -y
+        yum install https://yum.oracle.com/repo/OracleLinux/OL7/developer/x86_64/getPackage/cross-gcc-common-7.3.0-1.0.3.el7.noarch.rpm -y
         yum install https://yum.oracle.com/repo/OracleLinux/OL7/developer/x86_64/getPackage/gcc-aarch64-linux-gnu-7.3.0-1.0.3.el7.x86_64.rpm -y
         mkdir /github/home/.ssh/ && mkdir /workdir
         
