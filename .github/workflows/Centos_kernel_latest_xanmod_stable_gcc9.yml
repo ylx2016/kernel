@@ -84,6 +84,9 @@ jobs:
         xanmod_stable_ver=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}' | awk -F '[-]' '{print $1}')
         xanmod_stable=$(curl -s https://sourceforge.net/projects/xanmod/files/releases/stable/ | grep 'class="folder ">' | head -n 1 | awk -F '"' '{print $2}')
         cd linux-$xanmod_stable
+        if [ -f "CONFIGS/xanmod/gcc/config" ]; then
+          cp CONFIGS/xanmod/gcc/config .config
+        fi
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
         ln -s /opt/rh/devtoolset-9/root/usr/bin/* /usr/local/bin/
