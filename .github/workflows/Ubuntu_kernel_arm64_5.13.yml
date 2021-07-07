@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Ubuntu Kernel ARM64 5.12
+name: Ubuntu Kernel ARM64 5.13
 
 on:
   workflow_dispatch:
@@ -114,7 +114,7 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Ubuntu_Kernel_${kernel_ver}_arm64_5.12_bbr_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Ubuntu_Kernel_${kernel_ver}_arm64_5.13_bbr_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "::set-output name=status::success"
 
