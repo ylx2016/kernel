@@ -30,8 +30,10 @@ diff -ruaN include/net/tcp.h include/net/tcp.h
  	u32 (*min_tso_segs)(struct sock *sk);
 +	/* suggest number of segments for each skb to transmit (optional) */
 +	u32 (*tso_segs_goal)(struct sock *sk);
+
  	/* call when packets are delivered to update cwnd and pacing rate,
 	 * after all the ca_state processing. (optional)
+	 */
 diff -ruaN net/ipv4/Kconfig net/ipv4/Kconfig
 --- net/ipv4/Kconfig	2021-05-19 16:30:06.000000000 +0800
 +++ net/ipv4/Kconfig	2021-05-22 11:33:34.898841467 +0800
