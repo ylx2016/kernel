@@ -82,8 +82,8 @@ jobs:
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
-        wget -O 5.10_bbrplus.patch https://raw.githubusercontent.com/ylx2016/kernel/master/convert_official_linux-5.10.x_src_to_bbrplus.patch
-        patch -p0 < 5.10_bbrplus.patch
+        wget -O 5.13_bbrplus.patch https://raw.githubusercontent.com/ylx2016/kernel/master/convert_official_linux-5.13.x_src_to_bbrplus.patch
+        patch -p0 < 5.13_bbrplus.patch
         wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config-5.10.27-bbrplus
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
