@@ -50,24 +50,24 @@ jobs:
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
 
-    # - name: Check for updates
-      # id: check
-      # run: |
-        # github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Ubuntu_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
-        # github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag}  | grep 'deb' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}' | awk -F '[_]' '{print $1}')
-        # kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        # echo "github_ver=" $github_ver
-        # echo "kernel_ver=" $kernel_ver
-        # if [[ $github_ver == *"$kernel_ver"* ]]; then
-            # echo "::set-output name=status::fail"
-        # else
-            # echo "::set-output name=status::success"
-        # fi
+    - name: Check for updates
+      id: check
+      run: |
+       github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Ubuntu_Kernel' | grep '_arm64_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
+       github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag}  | grep 'deb' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}' | awk -F '[_]' '{print $1}')
+       kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+       echo "github_ver=" $github_ver
+       echo "kernel_ver=" $kernel_ver
+       if [[ $github_ver == *"$kernel_ver"* ]]; then
+         echo "::set-output name=status::fail"
+       else
+         echo "::set-output name=status::success"
+       fi
 
     - name: Get source code
       id: code
       working-directory: /workdir
-      # if: steps.check.outputs.status == 'success'
+      if: steps.check.outputs.status == 'success'
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
