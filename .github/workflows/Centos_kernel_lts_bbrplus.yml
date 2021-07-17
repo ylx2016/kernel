@@ -39,9 +39,25 @@ jobs:
         yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
         yum -y install devtoolset-9 devtoolset-9-libatomic-devel
         mkdir /github/home/.ssh/ && mkdir /workdir
+        
+    - name: Check for updates  
+      id: check
+      run: |
+        github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep '_LTS_bbrplus_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
+        github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag} | grep 'rpm' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}')
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        echo "github_ver=" $github_ver
+        echo "kernel_ver=" $kernel_ver
+        if [[ $github_ver == *"$kernel_ver"* ]]; then
+            echo "::set-output name=status::fail"
+        else
+            echo "::set-output name=status::success"
+        fi             
 
     - name: Get source code
       working-directory: /workdir
+      id: code
+      if: steps.check.outputs.status == 'success'
       run: |
         df -hT $PWD
         kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | awk -F '[>]' '{print $3}' | awk -F '[<]' '{print $1}')
