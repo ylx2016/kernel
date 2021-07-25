@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86_64 5.13.4-1.el7.elrepo.x86_64 Kernel Configuration
+# Linux/x86_64 5.13.5-1.el7.elrepo.x86_64 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc (GCC) 9.3.1 20200408 (Red Hat 9.3.1-2)"
 CONFIG_CC_IS_GCC=y
@@ -7163,7 +7163,7 @@ CONFIG_EDAC_SBRIDGE=m
 CONFIG_EDAC_SKX=m
 CONFIG_EDAC_I10NM=m
 CONFIG_EDAC_PND2=m
-# CONFIG_EDAC_IGEN6 is not set
+CONFIG_EDAC_IGEN6=m
 CONFIG_RTC_LIB=y
 CONFIG_RTC_MC146818_LIB=y
 CONFIG_RTC_CLASS=y
