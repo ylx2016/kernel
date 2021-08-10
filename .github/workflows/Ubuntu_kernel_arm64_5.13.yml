@@ -10,8 +10,8 @@ name: Ubuntu Kernel ARM64 5.13
 
 on:
   workflow_dispatch:
-  #schedule:
-    #- cron: "36 20 * * 2,6"
+  schedule:
+    - cron: "36 20 * * 2,6"
     #- cron: "36 20 * * *"
    # inputs:
     #  ssh:
@@ -119,7 +119,8 @@ jobs:
         echo "::set-output name=status::success"
 
     - name: Upload kernel to release
-      uses: softprops/action-gh-release@v1
+      #uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v0.1.7
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.TOKEN }}
