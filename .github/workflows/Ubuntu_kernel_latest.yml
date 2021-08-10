@@ -10,9 +10,9 @@ name: Ubuntu Kernel Latest
 
 on:
   workflow_dispatch:
-  schedule:
+  #schedule:
     #- cron: "36 20 * * 2,6"
-    - cron: "36 20 * * *"
+    #- cron: "36 20 * * *"
    # inputs:
     #  ssh:
      #   description: 'SSH connection to Actions'
