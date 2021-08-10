@@ -13,5 +13,3 @@ https://xanmod.org/
 
 关联内核脚本
 https://github.com/ylx2016/Linux-NetSpeed
-
-由于github更新了规则，目前API次数不够用了 内核预计一个月更新一次，这个月已经没次数了
