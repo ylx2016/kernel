@@ -10,9 +10,9 @@ name: Centos Kernel Latest
 
 on:
   workflow_dispatch:
-  #schedule:
+  schedule:
     #- cron: "38 20 * * 1,4"
-    #- cron: "39 20 * * *"
+    - cron: "39 20 * * *"
    # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
@@ -114,7 +114,8 @@ jobs:
         echo "::set-output name=status::success"
 
     - name: Upload kernel to release
-      uses: softprops/action-gh-release@v1
+      #uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v0.1.7
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.TOKEN }}
