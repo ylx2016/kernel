@@ -107,7 +107,7 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_***_test_***_bbr_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_test_bbr_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 7" >> release.txt
         echo "::set-output name=status::success"
