@@ -107,7 +107,7 @@ jobs:
         name: ${{ env.FILE_DATE }}
         path: /workdir/upload
         
-    - name: Upload firmware to WeTransfer
+    - name: Upload to WeTransfer
       id: wetransfer
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
       run: |
