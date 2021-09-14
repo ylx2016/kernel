@@ -110,6 +110,7 @@ jobs:
         echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_test_bbr_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 7" >> release.txt
+        echo "test kernel" >> release.txt
         echo "::set-output name=status::success"
 
     - name: Upload kernel to release
