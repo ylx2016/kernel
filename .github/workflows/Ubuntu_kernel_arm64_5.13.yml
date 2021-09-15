@@ -11,7 +11,7 @@ name: Ubuntu Kernel ARM64 5.13
 on:
   workflow_dispatch:
   schedule:
-    - cron: "36 20 * * 2,6"
+    - cron: "36 19 * * 2,6"
    # inputs:
     #  ssh:
      #   description: 'SSH connection to Actions'
