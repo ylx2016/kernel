@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Ubuntu Kernel ARM64 5.13
+name: Ubuntu Kernel ARM64 latest
 
 on:
   workflow_dispatch:
