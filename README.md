@@ -16,3 +16,6 @@ https://github.com/ylx2016/Linux-NetSpeed
 
 生成补丁
 diff -up config-1 config-2 >config.patch
+
+arm config from
+https://kojihub.stream.centos.org/koji/packageinfo?packageID=800
