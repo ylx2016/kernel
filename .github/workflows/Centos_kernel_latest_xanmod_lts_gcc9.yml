@@ -20,7 +20,7 @@ on:
        # default: 'false'
 
 env:
-  UPLOAD_DIR: false
+  UPLOAD_DIR: true
   UPLOAD_RELEASE: true
   UPLOAD_WETRANSFER: true
   TZ: Asia/Shanghai
