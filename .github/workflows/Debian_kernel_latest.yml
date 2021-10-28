@@ -27,7 +27,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/Debian:bullseye-backports
+    container: docker.io/debian:bullseye-backports
     
     steps:
     - name: Checkout
