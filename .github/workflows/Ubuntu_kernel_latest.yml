@@ -43,7 +43,7 @@ jobs:
         apt-get -qq build-dep linux -y
         apt-get -qq autoremove --purge
         apt-get -qq clean
-        sudo date -s "$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"
+        cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
         mkdir -p /workdir
         sudo mkdir -p /workdir/upload
         sudo chown $USER:$GROUPS /workdir
