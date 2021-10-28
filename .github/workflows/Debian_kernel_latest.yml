@@ -37,7 +37,6 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
         apt-get -qq update
         apt-get -qq install build-essential bzip2 gawk gettext git patch unzip htop wget curl sudo time -y
         apt-get -qq build-dep linux -y
