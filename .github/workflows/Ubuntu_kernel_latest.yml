@@ -37,14 +37,14 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo -E sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install build-essential bzip2 gawk gettext git patch unzip htop wget curl -y
-        sudo -E apt-get -qq build-dep linux -y
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
+        sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
+        apt-get -qq update
+        apt-get -qq install build-essential bzip2 gawk gettext git patch unzip htop wget curl sudo -y
+        apt-get -qq build-dep linux -y
+        apt-get -qq autoremove --purge
+        apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
+        mkdir -p /workdir
         sudo mkdir -p /workdir/upload
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
