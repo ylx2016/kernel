@@ -27,7 +27,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/ubuntu:21.10
+    container: docker.io/ubuntu:20.04
     
     steps:
     - name: Checkout
