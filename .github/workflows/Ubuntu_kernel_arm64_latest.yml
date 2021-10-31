@@ -50,6 +50,7 @@ jobs:
         sudo mkdir -p /workdir/upload
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
+        ln -fs /usr/bin/bash /usr/bin/sh
 
     - name: Check for updates
       id: check
