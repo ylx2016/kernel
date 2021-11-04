@@ -10,8 +10,8 @@ name: Centos Kernel Latest
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "38 21 * * 1,4"
+  #schedule:
+    #- cron: "38 21 * * 1,4"
    # inputs:
      # ssh:
        # description: 'SSH connection to Actions'
