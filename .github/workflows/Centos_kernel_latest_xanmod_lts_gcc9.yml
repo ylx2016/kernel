@@ -10,8 +10,8 @@ name: Centos Kernel latest XANMOD LTS GCC9
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "38 21 * * 3,6"
+  #schedule:
+    #- cron: "38 21 * * 3,6"
 
    # inputs:
      # ssh:
