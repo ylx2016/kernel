@@ -28,22 +28,18 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/centos:7
+    container: docker.io/qctt/kernelbuild:centos7
     
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
-      
-    - name: intall deps
+      uses: actions/checkout@main
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
-        yum update -y
-        yum install epel-release -y && yum install ansible -y && yum install openssh-clients -y
-        yum install -y wget tar gcc automake autoconf libtool make zip unzip centos-release-scl scl-utils bzip2 wget curl jq htop sudo time patch zstd libzstd-devel libzstd-static libknet1-compress-zstd-plugin
-        yum groups install development -y
-        yum groupinstall "Development Tools" -y
-        yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync glibc-static tmux -y
-        yum -y install devtoolset-9 devtoolset-9-libatomic-devel
-        mkdir /github/home/.ssh/ && mkdir /workdir
+        sudo chown $USER:$GROUPS /workdir
+        sudo chown $USER:$GROUPS /workdir/upload
         
     - name: Check for updates
       id: check
