@@ -27,8 +27,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/ubuntu:20.04
-
+    container: docker.io/qctt/kernelbuild:ubuntu20.04
+    
     steps:
     - name: Checkout
       uses: actions/checkout@main
@@ -37,20 +37,8 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
-        apt-get -qq update
-        apt-get -qq install build-essential bzip2 gawk gettext git patch unzip htop wget curl zstd libzstd-dev libzstd1 time sudo -y
-        apt-get -qq build-dep linux -y
-        apt-get -qq install build-essential binutils-multiarch ncurses-dev alien -y
-        apt-get -qq install --install-recommends gcc-aarch64-linux-gnu -y
-        apt-get -qq autoremove --purge
-        apt-get -qq clean
-        cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-        sudo mkdir -p /workdir
-        sudo mkdir -p /workdir/upload
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
-        ln -fs /usr/bin/bash /usr/bin/sh
 
     - name: Check for updates
       id: check
