@@ -90,7 +90,7 @@ jobs:
         echo -e "$(nproc) thread compile"
         ln -s /opt/rh/devtoolset-9/root/usr/bin/* /usr/local/bin/
         sudo time make -j$(nproc) rpm-pkg
-        mv /root/rpmbuild/RPMS/* /workdir/upload
+        mv /root/rpmbuild/RPMS/x86_64/* /workdir/upload
         echo "::set-output name=status::success"
         echo "FILE_DATE=Kernel_Centos_${xanmod_lts}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         
