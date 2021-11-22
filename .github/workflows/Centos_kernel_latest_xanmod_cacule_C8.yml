@@ -90,7 +90,7 @@ jobs:
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) rpm-pkg
-        mv /root/rpmbuild/RPMS/* /workdir/upload
+        mv /root/rpmbuild/RPMS/x86_64/* /workdir/upload
         echo "::set-output name=status::success"
         echo "FILE_DATE=Kernel_Centos_${xanmod_cacule}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         
