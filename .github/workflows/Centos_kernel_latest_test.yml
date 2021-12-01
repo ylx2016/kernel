@@ -21,7 +21,7 @@ on:
 env:
   UPLOAD_DIR: true
   UPLOAD_RELEASE: true
-  UPLOAD_WETRANSFER: true
+  UPLOAD_WETRANSFER: false
   TZ: Asia/Shanghai
 
 jobs:
@@ -115,7 +115,7 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")"
+        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_test_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
         echo "for centos 7" >> release.txt
         echo "::set-output name=status::success"
