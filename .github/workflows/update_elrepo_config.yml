@@ -23,7 +23,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/qctt/kernelbuild:ubuntu20.04
 
     steps:
     - uses: actions/checkout@v2
@@ -35,19 +34,17 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        #sudo -E sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
-        #sudo -E apt-get -qq update
-        #sudo -E apt-get -qq install bzip2 gawk git patch unzip htop wget curl -y
-        #sudo -E apt-get -qq autoremove --purge
-        #sudo -E apt-get -qq clean
-        #sudo timedatectl set-timezone "$TZ"
-        #sudo mkdir -p /workdir
-        #sudo mkdir -p /workdir/upload
-        #sudo chown $USER:$GROUPS /workdir
-        #sudo chown $USER:$GROUPS /workdir/upload
-        #mkdir /workdir/upload
+        sudo -E sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install bzip2 gawk git patch unzip htop wget curl -y
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo mkdir -p /workdir/upload
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
+        
         
     - name: Check for updates
       id: check
