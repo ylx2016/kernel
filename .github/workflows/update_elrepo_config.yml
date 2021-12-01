@@ -23,7 +23,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/qctt/kernelbuild:centos7
+    container: docker.io/qctt/kernelbuild:ubuntu20.04
 
     steps:
     - uses: actions/checkout@v2
