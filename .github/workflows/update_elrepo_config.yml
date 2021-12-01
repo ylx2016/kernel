@@ -57,11 +57,11 @@ jobs:
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         echo "action_kernel_ver=" $action_kernel_ver
         echo "kernel_ver=" $kernel_ver
-        if [[ $action_kernel_ver == *"$kernel_ver"* ]]; then
-            echo "::set-output name=status::fail"
-        else
+        #if [[ $action_kernel_ver == *"$kernel_ver"* ]]; then
+        #    echo "::set-output name=status::fail"
+        #else
             echo "::set-output name=status::success"
-        fi
+        #fi
         
     - name: Update config
       id: update
