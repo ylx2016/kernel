@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86_64 5.15.5-1.el7.elrepo.x86_64 Kernel Configuration
+# Linux/x86_64 5.15.6-1.el7.elrepo.x86_64 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc (GCC) 9.3.1 20200408 (Red Hat 9.3.1-2)"
 CONFIG_CC_IS_GCC=y
@@ -8719,7 +8719,10 @@ CONFIG_CIFS_DFS_UPCALL=y
 # CONFIG_CIFS_SWN_UPCALL is not set
 # CONFIG_CIFS_SMB_DIRECT is not set
 # CONFIG_CIFS_FSCACHE is not set
-# CONFIG_SMB_SERVER is not set
+CONFIG_SMB_SERVER=m
+# CONFIG_SMB_SERVER_SMBDIRECT is not set
+CONFIG_SMB_SERVER_CHECK_CAP_NET_ADMIN=y
+# CONFIG_SMB_SERVER_KERBEROS5 is not set
 CONFIG_SMBFS_COMMON=m
 # CONFIG_CODA_FS is not set
 CONFIG_AFS_FS=m
