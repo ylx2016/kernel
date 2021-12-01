@@ -74,6 +74,10 @@ jobs:
         sudo patch -p1 < ${elrepo_patch} config-*-1.el7.elrepo.x86_64
         sudo rm -rf ${config}
         sudo mv config-*-1.el7.elrepo.x86_64 ${config}
+        sudo sed -ri '/CONFIG_XEN_BLKDEV_FRONTEND/s/=.+/=y/g' ${config}
+        sudo sed -ri '/CONFIG_XEN_NETDEV_FRONTEND/s/=.+/=y/g' ${config}
+        sudo sed -ri '/CONFIG_VIRTIO_BLK/s/=.+/=y/g' ${config}
+        sudo sed -ri '/CONFIG_VIRTIO_NET/s/=.+/=y/g' ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
