@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Ubuntu Kernel Latest
+name: Ubuntu Kernel Test
 
 on:
   workflow_dispatch:
