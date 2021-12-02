@@ -72,7 +72,8 @@ jobs:
       run: |
         kernel_ver=5.3
         cd linux-master
-        wget -O .config https://github.com/ylx2016/kernel/raw/master/config_lkl
+        #wget -O .config https://github.com/ylx2016/kernel/raw/master/config_lkl
+        wget -O oldconfig https://github.com/ylx2016/kernel/raw/7eb006aae2f0ad2d9f1e52868e2ac7876635b58f/config_lkl
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         #echo "#include <linux/sockios.h>" >> /workdir/linux-master/tools/lkl/lib/hijack/xlate.c
         sed -i '1i\#include <linux/sockios.h>' tools/lkl/lib/hijack/xlate.c
