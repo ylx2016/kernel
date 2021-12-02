@@ -42,7 +42,7 @@ jobs:
         apt-get install libfuse-dev libarchive-dev xfsprogs jq -y
         #apt-get install btrfs-tools -y
         apt install btrfs-progs pip -y
-        pip install yamlish junit_xml -y
+        pip install yamlish junit_xml
         #mkdir /github
         #mkdir /github/home/
         mkdir /github/home/.ssh/
