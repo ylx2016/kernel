@@ -40,8 +40,8 @@ jobs:
       run: |
         apt update
         apt-get install libfuse-dev libarchive-dev xfsprogs -y
-        apt-get install btrfs-tools -y
-        pip install yamlish junit_xml -y
+        #apt-get install btrfs-tools -y
+        #pip install yamlish junit_xml -y
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
 
