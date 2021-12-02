@@ -22,7 +22,7 @@ env:
   UPLOAD_DIR: true
   UPLOAD_RELEASE: false
   UPLOAD_WETRANSFER: false
-  WEBSSH: true
+  WEBSSH: false
   TZ: Asia/Shanghai
 
 jobs:
@@ -72,11 +72,12 @@ jobs:
       run: |
         kernel_ver=5.3
         cd linux-master
-        wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config_elrepo
+        wget -O .config https://github.com/ylx2016/kernel/raw/master/config_lkl
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) -C tools/lkl
-        cd /workdir && mv *.deb /workdir/upload
+        mv /workdir/linux-master/tools/lkl/liblkl.a /workdir/upload
+        mv /workdir/linux-master/.config /workdir/upload
         echo "::set-output name=status::success"
         echo "FILE_DATE=Kernel_Ubuntu_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
 
