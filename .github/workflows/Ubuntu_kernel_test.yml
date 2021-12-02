@@ -42,7 +42,7 @@ jobs:
         apt-get install libfuse-dev libarchive-dev xfsprogs -y
         #apt-get install btrfs-tools -y
         #pip install yamlish junit_xml -y
-        mkdir /github
+        #mkdir /github
         mkdir /github/home/
         mkdir /github/home/.ssh/
         sudo chown $USER:$GROUPS /workdir
