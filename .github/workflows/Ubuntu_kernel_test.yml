@@ -41,7 +41,7 @@ jobs:
         apt update
         apt-get install libfuse-dev libarchive-dev xfsprogs jq -y
         #apt-get install btrfs-tools -y
-        apt install btrfs-progs pip -y
+        apt install btrfs-progs pip python -y
         pip install yamlish junit_xml
         #mkdir /github
         #mkdir /github/home/
