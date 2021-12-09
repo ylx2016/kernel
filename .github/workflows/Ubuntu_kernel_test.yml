@@ -54,7 +54,8 @@ jobs:
       working-directory: /workdir
       run: |
         df -hT $PWD
-        wget https://github.com/lkl/linux/archive/refs/heads/master.zip
+        #wget https://github.com/lkl/linux/archive/refs/heads/master.zip
+        https://github.com/ylx2016/linux-1/archive/refs/heads/master.zip
         unzip master.zip
         echo "::set-output name=status::success"
 
