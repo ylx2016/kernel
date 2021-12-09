@@ -56,7 +56,9 @@ jobs:
         df -hT $PWD
         #wget https://github.com/lkl/linux/archive/refs/heads/master.zip
         wget https://github.com/ylx2016/linux-1/archive/master.zip
+        wget https://github.com/ylx2016/rinetd/archive/refs/heads/main.zip
         unzip master.zip
+        unzip main.zip
         mv linux-1-master linux-master
         echo "::set-output name=status::success"
 
@@ -85,8 +87,14 @@ jobs:
         sed -i '1i\#include <linux/sockios.h>' tools/lkl/lib/hijack/xlate.c
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) -C tools/lkl
+        
+        cd /workdir/rinetd-main
+        chmod +x make.sh
+        bash make.sh
+        
         mv /workdir/linux-master/tools/lkl/liblkl.a /workdir/upload
         mv /workdir/linux-master/.config /workdir/upload
+        mv /workdir/rinetd-main/rinetd /workdir/upload
         echo "::set-output name=status::success"
         echo "FILE_DATE=Kernel_Ubuntu_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
 
