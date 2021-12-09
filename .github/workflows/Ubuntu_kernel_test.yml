@@ -57,6 +57,7 @@ jobs:
         #wget https://github.com/lkl/linux/archive/refs/heads/master.zip
         wget https://github.com/ylx2016/linux-1/archive/master.zip
         unzip master.zip
+        mv linux-1-master linux-master
         echo "::set-output name=status::success"
 
     - name: SSH connection to Actions
