@@ -79,6 +79,8 @@ jobs:
         sudo sed -ri '/CONFIG_XEN_NETDEV_FRONTEND/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_VIRTIO_BLK/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_VIRTIO_NET/s/=.+/=y/g' ${config}
+        sudo sed -ri '/CONFIG_TLS/s/=.+/=y/g' ${config}
+        sudo sed -ri '/CONFIG_TLS_DEVICE/s/=.+/=y/g' ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
