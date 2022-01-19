@@ -19,3 +19,6 @@ diff -up config-1 config-2 >config.patch
 
 arm config from
 https://kojihub.stream.centos.org/koji/packageinfo?packageID=800
+
+搬瓦工在线库存查询
+https://bwg.ylx.me/
