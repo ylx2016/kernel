@@ -20,7 +20,7 @@ on:
 
 env:
   UPLOAD_DIR: true
-  UPLOAD_RELEASE: false
+  UPLOAD_RELEASE: true
   UPLOAD_WETRANSFER: false
   WEBSSH: false
   TZ: Asia/Shanghai
