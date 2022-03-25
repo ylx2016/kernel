@@ -89,6 +89,7 @@ jobs:
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
         sed -ri '/CONFIG_TLS/s/=.+/=y/g' .config
         sed -ri '/CONFIG_TLS_DEVICE/s/=.+/=y/g' .config
+        sed -ri '/CONFIG_MPTCP*/c\CONFIG_MPTCP=y' .config
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) rpm-pkg
         mv /root/rpmbuild/RPMS/x86_64/* /workdir/upload
