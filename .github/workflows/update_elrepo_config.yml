@@ -81,6 +81,7 @@ jobs:
         sudo sed -ri '/CONFIG_VIRTIO_NET/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_TLS/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_TLS_DEVICE/s/=.+/=y/g' ${config}
+        sudo sed -ri '/CONFIG_MPTCP*/c\CONFIG_MPTCP=y' ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
