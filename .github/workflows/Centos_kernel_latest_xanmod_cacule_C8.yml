@@ -19,29 +19,27 @@ on:
     #- cron: "38 20 * * 3,6"
 
 env:
-  UPLOAD_DIR: false
+  UPLOAD_DIR: true
   UPLOAD_RELEASE: true
+  UPLOAD_WETRANSFER: true
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/centos:8
+    container: docker.io/qctt/kernelbuild:centos8
     
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
-      
-    - name: intall deps
+      uses: actions/checkout@main
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
-        yum update -y
-        yum install epel-release -y && yum install ansible -y && yum install openssh-clients -y
-        yum install -y wget tar gcc automake autoconf libtool make zip unzip scl-utils bzip2 wget curl jq htop sudo time patch zstd libzstd-devel
-        yum groups install development -y
-        yum install gcc bc ncurses-devel openssl-devel elfutils-libelf-devel rsync tmux -y
-        dnf --enablerepo=powertools install glibc-static -y
-        #yum -y install gcc-toolset-10-gcc
-        mkdir /github/home/.ssh/ && mkdir /workdir
+        mkdir /workdir/upload
+        sudo chown $USER:$GROUPS /workdir
+        sudo chown $USER:$GROUPS /workdir/upload
 
     - name: Check for updates
       id: check
@@ -88,6 +86,9 @@ jobs:
           cp CONFIGS/xanmod/gcc/config .config
         fi
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
+        sed -ri '/CONFIG_TLS/s/=.+/=y/g' .config
+        sed -ri '/CONFIG_TLS_DEVICE/s/=.+/=y/g' .config
+        sed -ri '/CONFIG_MPTCP*/c\CONFIG_MPTCP=y' .config
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) rpm-pkg
         mv /root/rpmbuild/RPMS/x86_64/* /workdir/upload
@@ -105,6 +106,15 @@ jobs:
         name: ${{ env.FILE_DATE }}
         path: /workdir/upload
 
+    - name: Upload to WeTransfer
+      id: wetransfer
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      run: |
+        curl -fsSL git.io/file-transfer | sh
+        ./transfer wet -s -p 16 --no-progress /workdir/upload 2>&1 | tee wetransfer.log
+        echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+        echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"  
+
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
@@ -120,7 +130,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
