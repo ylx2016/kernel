@@ -22,7 +22,7 @@ on:
 env:
   UPLOAD_DIR: true
   UPLOAD_RELEASE: true
-  UPLOAD_WETRANSFER: true
+  UPLOAD_WETRANSFER: false
   TZ: Asia/Shanghai
 
 jobs:
