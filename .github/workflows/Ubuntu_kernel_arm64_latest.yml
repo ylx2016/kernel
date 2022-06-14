@@ -83,7 +83,13 @@ jobs:
         cd linux-$kernel_ver
         #wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/5.13.arm64.config
         wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/kernel-aarch64-rhel.config 
-        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
+        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
+        scripts/config --disable MODULE_SIG
+        scripts/config --disable DEBUG_INFO
+        scripts/config --disable DEBUG_INFO_BTF
+        scripts/config --disable DEBUG_INFO_DWARF4
+        scripts/config --disable DEBUG_INFO_DWARF5
+        scripts/config --disable DEBUG_INFO_NONE
         echo -e "$(nproc) thread compile"
         sudo time make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) deb-pkg
         cd /workdir && mv *.deb /workdir/upload
