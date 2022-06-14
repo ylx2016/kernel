@@ -90,14 +90,14 @@ jobs:
         scripts/config --disable DEBUG_INFO_DWARF4
         scripts/config --disable DEBUG_INFO_DWARF5
         scripts/config --disable DEBUG_INFO_NONE
-        sed -ri '/CONFIG_DEBUG_KERNEL=/c\CONFIG_DEBUG_KERNEL=n' config
-        sed -ri '/CONFIG_DEBUG_MISC=/c\CONFIG_DEBUG_MISC=n' config
-        sed -ri '/CONFIG_MODULE_SIG=/c\CONFIG_MODULE_SIG=n' config
-        sed -ri '/CONFIG_DEBUG_INFO=/c\CONFIG_DEBUG_INFO=n' config
-        sed -i 's/.*CONFIG_DEBUG_INFO_BTF.*/CONFIG_DEBUG_INFO_BTF=n/' config
-        sed -i 's/.*CONFIG_DEBUG_INFO_DWARF4.*/CONFIG_DEBUG_INFO_DWARF4=n/' config
-        sed -i 's/.*CONFIG_DEBUG_INFO_DWARF5.*/CONFIG_DEBUG_INFO_DWARF5=n/' config
-        sed -i 's/.*CONFIG_DEBUG_INFO_NONE.*/CONFIG_DEBUG_INFO_NONE=n/' config
+        sed -ri '/CONFIG_DEBUG_KERNEL=/c\CONFIG_DEBUG_KERNEL=n' .config
+        sed -ri '/CONFIG_DEBUG_MISC=/c\CONFIG_DEBUG_MISC=n' .config
+        sed -ri '/CONFIG_MODULE_SIG=/c\CONFIG_MODULE_SIG=n' .config
+        sed -ri '/CONFIG_DEBUG_INFO=/c\CONFIG_DEBUG_INFO=n' .config
+        sed -i 's/.*CONFIG_DEBUG_INFO_BTF.*/CONFIG_DEBUG_INFO_BTF=n/' .config
+        sed -i 's/.*CONFIG_DEBUG_INFO_DWARF4.*/CONFIG_DEBUG_INFO_DWARF4=n/' .config
+        sed -i 's/.*CONFIG_DEBUG_INFO_DWARF5.*/CONFIG_DEBUG_INFO_DWARF5=n/' .config
+        sed -i 's/.*CONFIG_DEBUG_INFO_NONE.*/CONFIG_DEBUG_INFO_NONE=n/' .config
         echo -e "$(nproc) thread compile"
         sudo time make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) deb-pkg
         cd /workdir && mv *.deb /workdir/upload
