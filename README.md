@@ -23,3 +23,6 @@ diff -up config-1 config-2 >config.patch
 arm config from
 https://kojihub.stream.centos.org/koji/packageinfo?packageID=800
 https://archlinuxarm.org/packages/aarch64/linux-aarch64/files/config
+
+赞助：
+![20200312144201.png](https://vip1.loli.io/2020/03/12/7IJvKaTcrLBDbtz.png)
