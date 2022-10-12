@@ -66,7 +66,7 @@ jobs:
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
-	echo '::set-output name=action_echo::enabled'
+        echo '::set-output name=action_echo::enabled'
         echo "::set-output name=status::success"
 
     - name: SSH connection to Actions
