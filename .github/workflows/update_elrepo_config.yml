@@ -82,6 +82,7 @@ jobs:
         sudo sed -ri '/CONFIG_TLS/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_TLS_DEVICE/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_MPTCP*/c\CONFIG_MPTCP=y' ${config}
+        sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
