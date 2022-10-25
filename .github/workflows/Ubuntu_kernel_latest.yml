@@ -27,7 +27,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/qctt/kernelbuild:ubuntu22.04
+    container: docker.io/qctt/kernelbuild:ubuntu20
     
     steps:
     - name: Checkout
