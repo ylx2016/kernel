@@ -32,6 +32,14 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@main
+    
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt update && apt install dwarves gcc-aarch64-linux-gnu -y
+        sudo chown $USER:$GROUPS /workdir
+        sudo chown $USER:$GROUPS /workdir/upload
 
     - name: Check for updates
       id: check
