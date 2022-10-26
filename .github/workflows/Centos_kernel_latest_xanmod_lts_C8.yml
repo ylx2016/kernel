@@ -33,6 +33,15 @@ jobs:
     - name: Checkout
       uses: actions/checkout@main
 
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo mkdir /workdir
+        sudo mkdir /workdir/upload
+        sudo chown $USER:$GROUPS /workdir
+        sudo chown $USER:$GROUPS /workdir/upload
+
     - name: Check for updates
       id: check
       run: |
