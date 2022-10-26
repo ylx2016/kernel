@@ -82,13 +82,13 @@ jobs:
         sudo sed -ri '/CONFIG_TLS/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_TLS_DEVICE/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_MPTCP*/c\CONFIG_MPTCP=y' ${config}
-        sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
-        sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
-        sudo sed -i 's/.*CONFIG_RD_ZSTD.*/CONFIG_RD_ZSTD=n/' ${config}
-        sudo sed -i 's/.*CONFIG_MODULE_COMPRESS_ZSTD.*/CONFIG_MODULE_COMPRESS_ZSTD=n/' ${config}
-        sudo sed -i 's/.*ZSWAP_COMPRESSOR_DEFAULT_ZSTD.*/ZSWAP_COMPRESSOR_DEFAULT_ZSTD=n/' ${config}
-        sudo sed -i 's/.*CONFIG_CRYPTO_ZSTD.*/CONFIG_CRYPTO_ZSTD=n/' ${config}
-        sudo sed -i 's/.*CONFIG_F2FS_FS_ZSTD.*/CONFIG_F2FS_FS_ZSTD=n/' ${config}
+        #sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
+        #sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
+        #sudo sed -i 's/.*CONFIG_RD_ZSTD.*/CONFIG_RD_ZSTD=n/' ${config}
+        #sudo sed -i 's/.*CONFIG_MODULE_COMPRESS_ZSTD.*/CONFIG_MODULE_COMPRESS_ZSTD=n/' ${config}
+        #sudo sed -i 's/.*ZSWAP_COMPRESSOR_DEFAULT_ZSTD.*/ZSWAP_COMPRESSOR_DEFAULT_ZSTD=n/' ${config}
+        #sudo sed -i 's/.*CONFIG_CRYPTO_ZSTD.*/CONFIG_CRYPTO_ZSTD=n/' ${config}
+        #sudo sed -i 's/.*CONFIG_F2FS_FS_ZSTD.*/CONFIG_F2FS_FS_ZSTD=n/' ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
