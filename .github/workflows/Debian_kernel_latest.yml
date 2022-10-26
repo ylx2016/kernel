@@ -27,40 +27,25 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/debian:bullseye-backports
+    container: docker.io/qctt/kernelbuild:debian12
     
     steps:
     - name: Checkout
       uses: actions/checkout@main
 
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list
-        echo "deb-src http://deb.debian.org/debian bullseye main" >> /etc/apt/sources.list
-        apt-get -qq update
-        apt-get -qq install build-essential bzip2 gawk gettext git patch unzip htop wget curl sudo time -y
-        apt-get -qq build-dep linux -y
-        apt-get -qq autoremove --purge
-        apt-get -qq clean
-        cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-        mkdir -p /workdir
-        sudo mkdir -p /workdir/upload
-        sudo chown $USER:$GROUPS /workdir
-        sudo chown $USER:$GROUPS /workdir/upload
-
     - name: Check for updates
       id: check
       run: |
-        github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Ubuntu_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
+        github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Debian_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
         github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag}  | grep 'deb' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}' | awk -F '[_]' '{print $1}')
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         echo "github_ver=" $github_ver
         echo "kernel_ver=" $kernel_ver
         if [[ $github_ver == *"$kernel_ver"* ]]; then
+            echo '::set-output name=action_echo::enabled'
             echo "::set-output name=status::fail"
         else
+            echo '::set-output name=action_echo::enabled'
             echo "::set-output name=status::success"
         fi
 
@@ -74,6 +59,7 @@ jobs:
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
+        echo '::set-output name=action_echo::enabled'
         echo "::set-output name=status::success"
 
     - name: SSH connection to Actions
@@ -91,12 +77,21 @@ jobs:
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
         wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config_elrepo
-        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config && scripts/config --disable MODULE_SIG && scripts/config --disable DEBUG_INFO
+        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
+        scripts/config --disable MODULE_SIG
+        scripts/config --disable DEBUG_INFO
+        scripts/config --disable DEBUG_INFO_BTF
+        scripts/config --disable DEBUG_INFO_DWARF4
+        scripts/config --disable DEBUG_INFO_DWARF5
+        scripts/config --disable DEBUG_INFO_NONE
+        scripts/config --disable SYSTEM_TRUSTED_KEYS
+        scripts/config --disable SYSTEM_REVOCATION_KEYS
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) deb-pkg
         cd /workdir && mv *.deb /workdir/upload
+        echo '::set-output name=action_echo::enabled'
         echo "::set-output name=status::success"
-        echo "FILE_DATE=Kernel_Ubuntu_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
+        echo "FILE_DATE=Kernel_Debian_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
 
     - name: Check space usage
       if: (!cancelled()) && steps.compile.outputs.status == 'success'
@@ -116,6 +111,7 @@ jobs:
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress /workdir/upload 2>&1 | tee wetransfer.log
         echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+        echo '::set-output name=action_echo::enabled'
         echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"     
 
     - name: Generate release tag
@@ -123,8 +119,10 @@ jobs:
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
+        echo '::set-output name=action_echo::enabled'
         echo "::set-output name=release_tag::Debian_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")"
         touch release.txt
+        echo '::set-output name=action_echo::enabled'
         echo "::set-output name=status::success"
 
     - name: Upload kernel to release
@@ -141,4 +139,4 @@ jobs:
       uses: GitRML/delete-workflow-runs@main
       with:
         retain_days: 1
-        keep_minimum_runs: 10 
+        keep_minimum_runs: 10
