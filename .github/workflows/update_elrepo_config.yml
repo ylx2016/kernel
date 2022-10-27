@@ -36,11 +36,9 @@ jobs:
       run: |
         sudo -E sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install bzip2 gawk git patch unzip htop wget curl -y
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
+        #sudo -E apt-get -qq install bzip2 gawk git patch unzip htop wget curl -y
+        sudo -E apt-get -qq install bzip2 gawk git unzip htop wget curl -y
         sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
         sudo mkdir -p /workdir/upload
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
@@ -72,9 +70,17 @@ jobs:
         cd /workdir/boot
         elrepo_patch=/home/runner/work/kernel/kernel/elrepo_config.patch
         config=/home/runner/work/kernel/kernel/config_elrepo
-        sudo patch -p1 < ${elrepo_patch} config-*-1.el7.elrepo.x86_64
+        #sudo patch -p1 < ${elrepo_patch} config-*-1.el7.elrepo.x86_64
         sudo rm -rf ${config}
         sudo mv config-*-1.el7.elrepo.x86_64 ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/i\CONFIG_TCP_CONG_BBR2=y' ${config}
+        sudo sed -ri 's/.*CONFIG_DEFAULT_CUBIC.*/CONFIG_DEFAULT_BBR2=y/' ${config}
+        sudo sed -ri 's/.*CONFIG_DEFAULT_TCP_CONG.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' ${config}
+        sudo sed -ri 's/.*CONFIG_NET_SCH_PIE.*/CONFIG_NET_SCH_PIE=y/' ${config}
+        sudo sed -ri 's/.*CONFIG_NET_SCH_FQ_PIE.*/CONFIG_NET_SCH_FQ_PIE=y/' ${config}
+        sudo sed -ri 's/.*CONFIG_NET_SCH_DEFAULT.*/CONFIG_NET_SCH_DEFAULT=y/' ${config}
+        sudo sed -ri '/.*CONFIG_NET_SCH_FQ_PIE.*/i\CONFIG_DEFAULT_FQ_PIE=y' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_FQ_PIE.*/i\CONFIG_DEFAULT_NET_SCH="fq_pie"' ${config}
         sudo sed -ri '/CONFIG_XEN_BLKDEV_FRONTEND/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_XEN_NETDEV_FRONTEND/s/=.+/=y/g' ${config}
         sudo sed -ri '/CONFIG_VIRTIO_BLK/s/=.+/=y/g' ${config}
