@@ -73,13 +73,7 @@ jobs:
         #sudo patch -p1 < ${elrepo_patch} config-*-1.el7.elrepo.x86_64
         sudo rm -rf ${config}
         sudo mv config-*-1.el7.elrepo.x86_64 ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_RENO.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_FQ.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_CODEL.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_FQ_CODEL.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_SFQ.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_PFIFO_FAST.*/d' ${config}
+        sudo sed -ri 's/.*CONFIG_TCP_CONG_CUBIC.*/CONFIG_TCP_CONG_CUBIC=m/' ${config}
         sudo sed -ri 's/.*CONFIG_TCP_CONG_BBR.*/CONFIG_TCP_CONG_BBR=y/' ${config}
         sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/i\CONFIG_TCP_CONG_BBR2=y' ${config}
         sudo sed -ri 's/.*CONFIG_DEFAULT_CUBIC.*/CONFIG_DEFAULT_BBR2=y/' ${config}
@@ -103,6 +97,13 @@ jobs:
         #sudo sed -i 's/.*ZSWAP_COMPRESSOR_DEFAULT_ZSTD.*/ZSWAP_COMPRESSOR_DEFAULT_ZSTD=n/' ${config}
         #sudo sed -i 's/.*CONFIG_CRYPTO_ZSTD.*/CONFIG_CRYPTO_ZSTD=n/' ${config}
         #sudo sed -i 's/.*CONFIG_F2FS_FS_ZSTD.*/CONFIG_F2FS_FS_ZSTD=n/' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_RENO.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_FQ.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_CODEL.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_FQ_CODEL.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_SFQ.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_PFIFO_FAST.*/d' ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
