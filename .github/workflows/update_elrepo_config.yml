@@ -73,6 +73,13 @@ jobs:
         #sudo patch -p1 < ${elrepo_patch} config-*-1.el7.elrepo.x86_64
         sudo rm -rf ${config}
         sudo mv config-*-1.el7.elrepo.x86_64 ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_RENO.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_FQ.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_CODEL.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_FQ_CODEL.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_SFQ.*/d' ${config}
+        sudo sed -ri '/.*CONFIG_DEFAULT_PFIFO_FAST.*/d' ${config}
         sudo sed -ri 's/.*CONFIG_TCP_CONG_BBR.*/CONFIG_TCP_CONG_BBR=y/' ${config}
         sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/i\CONFIG_TCP_CONG_BBR2=y' ${config}
         sudo sed -ri 's/.*CONFIG_DEFAULT_CUBIC.*/CONFIG_DEFAULT_BBR2=y/' ${config}
