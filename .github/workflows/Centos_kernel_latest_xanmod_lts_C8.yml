@@ -37,8 +37,8 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo mkdir /workdir
-        sudo mkdir /workdir/upload
+        sudo mkdir /workdir -p
+        sudo mkdir /workdir/upload -p
         sudo chown $USER:$GROUPS /workdir
         sudo chown $USER:$GROUPS /workdir/upload
 
