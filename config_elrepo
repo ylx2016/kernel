@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86_64 6.0.11-1.el7.elrepo.x86_64 Kernel Configuration
+# Linux/x86_64 6.0.12-1.el7.elrepo.x86_64 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc (GCC) 9.3.1 20200408 (Red Hat 9.3.1-2)"
 CONFIG_CC_IS_GCC=y
@@ -9276,7 +9276,7 @@ CONFIG_EVM_ATTR_FSUUID=y
 # CONFIG_EVM_LOAD_X509 is not set
 CONFIG_DEFAULT_SECURITY_SELINUX=y
 # CONFIG_DEFAULT_SECURITY_DAC is not set
-CONFIG_LSM="yama,integrity,selinux,bpf"
+CONFIG_LSM="lockdown,yama,integrity,selinux,bpf"
 
 #
 # Kernel hardening options
