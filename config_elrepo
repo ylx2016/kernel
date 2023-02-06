@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86_64 6.1.9-1.el7.elrepo.x86_64 Kernel Configuration
+# Linux/x86_64 6.1.10-1.el7.elrepo.x86_64 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc (GCC) 9.3.1 20200408 (Red Hat 9.3.1-2)"
 CONFIG_CC_IS_GCC=y
@@ -2785,6 +2785,7 @@ CONFIG_NETCONSOLE=m
 CONFIG_NETCONSOLE_DYNAMIC=y
 CONFIG_NETPOLL=y
 CONFIG_NET_POLL_CONTROLLER=y
+CONFIG_NTB_NETDEV=m
 CONFIG_TUN=m
 CONFIG_TAP=m
 # CONFIG_TUN_VNET_CROSS_LE is not set
@@ -8753,7 +8754,17 @@ CONFIG_TSL4531=m
 # CONFIG_MAX31865 is not set
 # end of Temperature sensors
 
-# CONFIG_NTB is not set
+CONFIG_NTB=m
+# CONFIG_NTB_MSI is not set
+CONFIG_NTB_AMD=m
+# CONFIG_NTB_IDT is not set
+CONFIG_NTB_INTEL=m
+CONFIG_NTB_EPF=m
+# CONFIG_NTB_SWITCHTEC is not set
+# CONFIG_NTB_PINGPONG is not set
+# CONFIG_NTB_TOOL is not set
+CONFIG_NTB_PERF=m
+CONFIG_NTB_TRANSPORT=m
 # CONFIG_PWM is not set
 
 #
