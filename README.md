@@ -15,7 +15,7 @@ BBRplus Action 编译的内核仅限 Cloud VMS，实体机不建议安装使用�
 
 BBRplus from https://github.com/UJX6N
 
-XanMod from https://xanmod.org/
+XanMod(停止维护) from https://xanmod.org/  
 
 关联内核脚本：https://github.com/ylx2016/Linux-NetSpeed
 
