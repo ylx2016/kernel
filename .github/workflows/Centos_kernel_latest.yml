@@ -84,7 +84,6 @@ jobs:
         scripts/config --disable DEBUG_INFO_DWARF5
         scripts/config --disable DEBUG_INFO_NONE
         echo -e "$(nproc) thread compile"
-        cat kernel.spec
         sudo time make -j$(nproc) rpm-pkg
         mv /root/rpmbuild/RPMS/x86_64/* /workdir/upload
         echo "::set-output name=status::success"
