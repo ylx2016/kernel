@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86_64 6.2.2-1.el7.elrepo.x86_64 Kernel Configuration
+# Linux/x86_64 6.2.3-1.el7.elrepo.x86_64 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc (GCC) 9.3.1 20200408 (Red Hat 9.3.1-2)"
 CONFIG_CC_IS_GCC=y
@@ -6438,6 +6438,7 @@ CONFIG_SND_HDA_CODEC_SI3054=m
 CONFIG_SND_HDA_GENERIC=m
 CONFIG_SND_HDA_POWER_SAVE_DEFAULT=0
 # CONFIG_SND_HDA_INTEL_HDMI_SILENT_STREAM is not set
+# CONFIG_SND_HDA_CTL_DEV_ID is not set
 # end of HD-Audio
 
 CONFIG_SND_HDA_CORE=m
