@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86_64 6.2.7-1.el7.elrepo.x86_64 Kernel Configuration
+# Linux/x86_64 6.2.8-1.el7.elrepo.x86_64 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc (GCC) 9.3.1 20200408 (Red Hat 9.3.1-2)"
 CONFIG_CC_IS_GCC=y
@@ -4139,7 +4139,6 @@ CONFIG_SERIAL_ARC_NR_PORTS=1
 CONFIG_SERIAL_RP2=m
 CONFIG_SERIAL_RP2_NR_UARTS=32
 CONFIG_SERIAL_FSL_LPUART=m
-# CONFIG_SERIAL_FSL_LPUART_CONSOLE is not set
 CONFIG_SERIAL_FSL_LINFLEXUART=m
 CONFIG_SERIAL_SPRD=m
 # end of Serial drivers
