@@ -115,7 +115,7 @@ jobs:
         sudo sed -ri '/CONFIG_DEBUG_INFO_DWARF5*/c\# CONFIG_DEBUG_INFO_DWARF5 is not set' ${config}
         sudo sed -ri '/CONFIG_MODULE_SIG_KEY_TYPE_RSA*/c\# CONFIG_MODULE_SIG_KEY_TYPE_RSA is not set' ${config}
         sudo sed -ri '/CONFIG_MODULE_SIG_KEY=*/c\CONFIG_MODULE_SIG_KEY=""' ${config}
-        sudo sed -ri '/SYSTEM_TRUSTED_KEYS=*/c\SYSTEM_TRUSTED_KEYS=""' ${config}
+        sudo sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS=*/c\CONFIG_SYSTEM_TRUSTED_KEYS=""' ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
