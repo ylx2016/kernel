@@ -103,6 +103,19 @@ jobs:
         sudo sed -ri '/.*CONFIG_DEFAULT_FQ_CODEL.*/d' ${config}
         sudo sed -ri '/.*CONFIG_DEFAULT_SFQ.*/d' ${config}
         sudo sed -ri '/.*CONFIG_DEFAULT_PFIFO_FAST.*/d' ${config}
+        
+        sudo sed -ri '/CONFIG_HAVE_ARCH_KCSAN*/c\# CONFIG_HAVE_ARCH_KCSAN is not set' ${config}
+        sudo sed -ri '/CONFIG_DEBUG_INFO_NONE*/c\# CONFIG_DEBUG_INFO_NONE is not set' ${config}
+        sudo sed -ri '/CONFIG_MODULE_SIG=y/c\# CONFIG_MODULE_SIG is not set' ${config}
+        sudo sed -ri '/CONFIG_MODULE_SIG_ALL*/c\# CONFIG_MODULE_SIG_ALL is not set' ${config}
+        sudo sed -ri '/CONFIG_DEBUG_INFO=*/c\# CONFIG_DEBUG_INFO is not set' ${config}
+        sudo sed -ri '/CONFIG_DEBUG_INFO_NONE*/c\# CONFIG_DEBUG_INFO_NONE is not set' ${config}
+        sudo sed -ri '/CONFIG_DEBUG_INFO_DWARF4*/c\# CONFIG_DEBUG_INFO_DWARF4 is not set' ${config}
+        sudo sed -ri '/CONFIG_DEBUG_INFO_BTF*/c\# CONFIG_DEBUG_INFO_BTF is not set' ${config}
+        sudo sed -ri '/CONFIG_DEBUG_INFO_DWARF5*/c\# CONFIG_DEBUG_INFO_DWARF5 is not set' ${config}
+        sudo sed -ri '/CONFIG_MODULE_SIG_KEY_TYPE_RSA*/c\# CONFIG_MODULE_SIG_KEY_TYPE_RSA is not set' ${config}
+        sudo sed -ri '/CONFIG_MODULE_SIG_KEY=*/c\CONFIG_MODULE_SIG_KEY=""' ${config}
+        sudo sed -ri '/SYSTEM_TRUSTED_KEYS=*/c\SYSTEM_TRUSTED_KEYS=""' ${config}
         echo "::set-output name=status::success"
         
     - name: SSH connection to Actions
