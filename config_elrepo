@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86_64 6.4.2-1.el7.elrepo.x86_64 Kernel Configuration
+# Linux/x86_64 6.4.3-1.el7.elrepo.x86_64 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc (GCC) 9.3.1 20200408 (Red Hat 9.3.1-2)"
 CONFIG_CC_IS_GCC=y
@@ -7958,7 +7958,9 @@ CONFIG_XEN_SYMS=y
 CONFIG_XEN_HAVE_VPMU=y
 CONFIG_XEN_FRONT_PGDIR_SHBUF=m
 CONFIG_XEN_UNPOPULATED_ALLOC=y
-# CONFIG_XEN_VIRTIO is not set
+CONFIG_XEN_GRANT_DMA_OPS=y
+CONFIG_XEN_VIRTIO=y
+CONFIG_XEN_VIRTIO_FORCE_GRANT=y
 # end of Xen driver support
 
 # CONFIG_GREYBUS is not set
