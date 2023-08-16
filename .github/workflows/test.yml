@@ -6,7 +6,7 @@
 # Change from P3TERX
 #
 
-name: Debian Kernel Latest
+name: Debian Kernel Test
 
 on:
   workflow_dispatch:
