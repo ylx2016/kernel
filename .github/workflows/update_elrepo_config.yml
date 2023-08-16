@@ -76,6 +76,7 @@ jobs:
         sudo sed -ri 's/.*CONFIG_TCP_CONG_CUBIC.*/CONFIG_TCP_CONG_CUBIC=m/' ${config}
         sudo sed -ri 's/.*CONFIG_TCP_CONG_BBR.*/CONFIG_TCP_CONG_BBR=y/' ${config}
         sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/i\CONFIG_TCP_CONG_BBR2=m' ${config}
+        sudo sed -ri '/CONFIG_TCP_CONG_BBR2=m/a CONFIG_TCP_CONG_BBR3=m' ${config}
         sudo sed -ri 's/.*CONFIG_DEFAULT_TCP_CONG.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' ${config}
         sudo sed -ri 's/.*CONFIG_NET_SCH_PIE.*/CONFIG_NET_SCH_PIE=y/' ${config}
         sudo sed -ri 's/.*CONFIG_NET_SCH_FQ_PIE.*/CONFIG_NET_SCH_FQ_PIE=y/' ${config}
