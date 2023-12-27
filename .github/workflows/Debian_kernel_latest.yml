@@ -48,8 +48,7 @@ jobs:
             echo "action_echo=enabled" >> $GITHUB_ENV
             echo "status=success" >> $GITHUB_ENV
         fi
-
-		
+	
     - name: Get source code
       id: code
       working-directory: /workdir
