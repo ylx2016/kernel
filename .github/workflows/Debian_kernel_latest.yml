@@ -10,13 +10,6 @@ name: Debian Kernel Latest
 
 on:
   workflow_dispatch:
-  #schedule:
-    #- cron: "36 20 * * 1,4"
-   # inputs:
-    #  ssh:
-     #   description: 'SSH connection to Actions'
-      #  required: false
-       # default: 'false'
 
 env:
   UPLOAD_DIR: true
@@ -33,14 +26,14 @@ jobs:
     - name: Checkout
       uses: actions/checkout@main
 
-    - name: Check for updates
-      id: check
+    - name: Get Kernel Versions
+      id: versions
       run: |
         github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Debian_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
         github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag}  | grep 'deb' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}' | awk -F '[_]' '{print $1}')
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo "github_ver=" $github_ver
-        echo "kernel_ver=" $kernel_ver
+        echo "github_ver=$github_ver"
+        echo "kernel_ver=$kernel_ver"
         if [[ $github_ver == *"$kernel_ver"* ]]; then
             echo "action_echo=enabled" >> $GITHUB_ENV
             echo "status=fail" >> $GITHUB_ENV
@@ -49,10 +42,8 @@ jobs:
             echo "status=success" >> $GITHUB_ENV
         fi
 
-    - name: Get source code
-      id: code
-      working-directory: /workdir
-      if: steps.check.outputs.status == 'success'
+    - name: Get Source Code
+      if: steps.versions.outputs.status == 'success'
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
@@ -62,17 +53,8 @@ jobs:
         echo "action_echo=enabled" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_ENV
 
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-
-    - name: Compile the kernel
-      id: compile
-      if: steps.code.outputs.status == 'success'
-      working-directory: /workdir
+    - name: Compile Kernel
+      if: steps.versions.outputs.status == 'success' && steps.code.outputs.status == 'success'
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
@@ -93,11 +75,7 @@ jobs:
         echo "status=success" >> $GITHUB_ENV
         echo "FILE_DATE=Kernel_Debian_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Check space usage
-      if: (!cancelled()) && steps.compile.outputs.status == 'success'
-      run: df -hT
-
-    - name: Upload
+    - name: Upload Artifacts
       uses: actions/upload-artifact@main
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_DIR == 'true'
       with:
@@ -105,27 +83,25 @@ jobs:
         path: /workdir/upload
 
     - name: Upload to WeTransfer
-      id: wetransfer
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress /workdir/upload 2>&1 | tee wetransfer.log
-        echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+        echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
         echo "action_echo=enabled" >> $GITHUB_ENV
-        echo "url=$(cat wetransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_ENV
+        echo "url=$(grep https wetransfer.log | cut -f3 -d' ')" >> $GITHUB_ENV
 
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo "set-output name=action_echo::enabled" >> $GITHUB_ENV
+        echo "action_echo=enabled" >> $GITHUB_ENV
         echo "release_tag=Debian_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
         touch release.txt
-        echo "action_echo=enabled" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_ENV
 
-    - name: Upload kernel to release
+    - name: Upload Kernel to release
       uses: softprops/action-gh-release@v1
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
