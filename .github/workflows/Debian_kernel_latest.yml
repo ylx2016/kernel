@@ -28,7 +28,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container: docker.io/qctt/kernelbuild:debian12
-    
+
     steps:
     - name: Checkout
       uses: actions/checkout@main
