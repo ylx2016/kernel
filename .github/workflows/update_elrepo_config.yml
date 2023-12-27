@@ -38,10 +38,14 @@ jobs:
         run: |
           config_path=/home/runner/work/kernel/kernel/config_elrepo
           action_kernel_ver=$(grep "Linux/x86_64" $config_path | awk -F '[- ]' '{print $3}')
-          kernel_ver=$(curl -s https://www.kernel.org/ | grep -oP 'Linux/x86_64/\K[^<]+' | head -n 1)
+          kernel_ver=$(curl -s 'https://elrepo.org/linux/kernel/el7/x86_64/RPMS/?C=N;O=D' | grep -oP 'kernel-ml-headers[^"]+' | head -n 1 | awk -F '-' '{print $4}')
           echo "action_kernel_ver=$action_kernel_ver"
           echo "kernel_ver=$kernel_ver"
-          echo "status=$(if [[ $action_kernel_ver == *"$kernel_ver"* ]]; then echo fail; else echo success; fi)" >> $GITHUB_ENV
+          if [[ "${action_kernel_ver}" == *"${kernel_ver}"* ]]; then
+           echo "status=fail" >> $GITHUB_ENV
+          else
+           echo "status=success" >> $GITHUB_ENV
+          fi
 
       - name: Update config
         id: update
