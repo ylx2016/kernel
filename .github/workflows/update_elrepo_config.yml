@@ -9,14 +9,7 @@ name: Update elrepo config
 
 on:
   workflow_dispatch:
-    #inputs:
-    #  ssh:
-    #    description: 'SSH connection to Actions'
-    #    required: false
-    #    default: 'false'
-  #schedule:
-    #- cron: "30 20 * * *"
-    
+
 env:
   TZ: Asia/Shanghai
 
@@ -25,118 +18,111 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-      with:
-        persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
 
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo -E sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
-        sudo -E apt-get -qq update
-        #sudo -E apt-get -qq install bzip2 gawk git patch unzip htop wget curl -y
-        sudo -E apt-get -qq install bzip2 gawk git unzip htop wget curl -y
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir/upload
-        sudo chown $USER:$GROUPS /workdir
-        sudo chown $USER:$GROUPS /workdir/upload
-        
-        
-    - name: Check for updates
-      id: check
-      run: |
-        config=/home/runner/work/kernel/kernel/config_elrepo
-        action_kernel_ver=$(grep "Linux/x86_64" ${config} | awk -F '[-]' '{print $1}' | awk -F ' ' '{print $3}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo "action_kernel_ver=" $action_kernel_ver
-        echo "kernel_ver=" $kernel_ver
-        if [[ $action_kernel_ver == *"$kernel_ver"* ]]; then
-            echo "::set-output name=status::fail"
-        else
-            echo "::set-output name=status::success"
-        fi
-        
-    - name: Update config
-      id: update
-      if: steps.check.outputs.status == 'success'
-      working-directory: /workdir
-      run: |
-        sudo apt install -y rpm2cpio 
-        elrepo_c7_ver=$(curl -s 'https://elrepo.org/linux/kernel/el7/x86_64/RPMS/?C=N;O=D' | grep 'kernel-ml-headers' | head -n 1 | awk -F '"' '{print $4}' | awk -F '-' '{print $4}')
-        sudo wget https://elrepo.org/linux/kernel/el7/x86_64/RPMS/kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm
-        sudo rpm2cpio kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm | cpio -divm
-        cd /workdir/boot
-        elrepo_patch=/home/runner/work/kernel/kernel/elrepo_config.patch
-        config=/home/runner/work/kernel/kernel/config_elrepo
-        #sudo patch -p1 < ${elrepo_patch} config-*-1.el7.elrepo.x86_64
-        sudo rm -rf ${config}
-        sudo mv config-*-1.el7.elrepo.x86_64 ${config}
-        sudo sed -ri 's/.*CONFIG_TCP_CONG_CUBIC.*/CONFIG_TCP_CONG_CUBIC=m/' ${config}
-        sudo sed -ri 's/.*CONFIG_TCP_CONG_BBR.*/CONFIG_TCP_CONG_BBR=y/' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/i\CONFIG_TCP_CONG_BBR2=m' ${config}
-        sudo sed -ri '/CONFIG_TCP_CONG_BBR2=m/a CONFIG_TCP_CONG_BBR3=m' ${config}
-        sudo sed -ri 's/.*CONFIG_DEFAULT_TCP_CONG.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' ${config}
-        sudo sed -ri 's/.*CONFIG_NET_SCH_PIE.*/CONFIG_NET_SCH_PIE=y/' ${config}
-        sudo sed -ri 's/.*CONFIG_NET_SCH_FQ_PIE.*/CONFIG_NET_SCH_FQ_PIE=y/' ${config}
-        sudo sed -ri 's/.*CONFIG_NET_SCH_DEFAULT.*/CONFIG_NET_SCH_DEFAULT=y/' ${config}
-        sudo sed -ri '/.*CONFIG_NET_SCH_FQ_PIE.*/i\CONFIG_DEFAULT_FQ_PIE=y' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_FQ_PIE.*/i\CONFIG_DEFAULT_NET_SCH="fq_pie"' ${config}
-        sudo sed -ri '/CONFIG_XEN_BLKDEV_FRONTEND/s/=.+/=y/g' ${config}
-        sudo sed -ri '/CONFIG_XEN_NETDEV_FRONTEND/s/=.+/=y/g' ${config}
-        sudo sed -ri '/CONFIG_VIRTIO_BLK/s/=.+/=y/g' ${config}
-        sudo sed -ri '/CONFIG_VIRTIO_NET/s/=.+/=y/g' ${config}
-        sudo sed -ri '/CONFIG_TLS/s/=.+/=y/g' ${config}
-        sudo sed -ri '/CONFIG_TLS_DEVICE/s/=.+/=y/g' ${config}
-        #sudo sed -ri '/CONFIG_MPTCP*/c\CONFIG_MPTCP=y' ${config}
-        #sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
-        #sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
-        #sudo sed -i 's/.*CONFIG_RD_ZSTD.*/CONFIG_RD_ZSTD=n/' ${config}
-        #sudo sed -i 's/.*CONFIG_MODULE_COMPRESS_ZSTD.*/CONFIG_MODULE_COMPRESS_ZSTD=n/' ${config}
-        #sudo sed -i 's/.*ZSWAP_COMPRESSOR_DEFAULT_ZSTD.*/ZSWAP_COMPRESSOR_DEFAULT_ZSTD=n/' ${config}
-        #sudo sed -i 's/.*CONFIG_CRYPTO_ZSTD.*/CONFIG_CRYPTO_ZSTD=n/' ${config}
-        #sudo sed -i 's/.*CONFIG_F2FS_FS_ZSTD.*/CONFIG_F2FS_FS_ZSTD=n/' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_RENO.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_FQ.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_CODEL.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_FQ_CODEL.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_SFQ.*/d' ${config}
-        sudo sed -ri '/.*CONFIG_DEFAULT_PFIFO_FAST.*/d' ${config}
-        
-        sudo sed -ri '/CONFIG_HAVE_ARCH_KCSAN*/c\# CONFIG_HAVE_ARCH_KCSAN is not set' ${config}
-        sudo sed -ri '/CONFIG_DEBUG_INFO_NONE*/c\# CONFIG_DEBUG_INFO_NONE is not set' ${config}
-        sudo sed -ri '/CONFIG_MODULE_SIG=y/c\# CONFIG_MODULE_SIG is not set' ${config}
-        sudo sed -ri '/CONFIG_MODULE_SIG_ALL*/c\# CONFIG_MODULE_SIG_ALL is not set' ${config}
-        sudo sed -ri '/CONFIG_DEBUG_INFO=*/c\# CONFIG_DEBUG_INFO is not set' ${config}
-        sudo sed -ri '/CONFIG_DEBUG_INFO_NONE*/c\# CONFIG_DEBUG_INFO_NONE is not set' ${config}
-        sudo sed -ri '/CONFIG_DEBUG_INFO_DWARF4*/c\# CONFIG_DEBUG_INFO_DWARF4 is not set' ${config}
-        sudo sed -ri '/CONFIG_DEBUG_INFO_BTF*/c\# CONFIG_DEBUG_INFO_BTF is not set' ${config}
-        sudo sed -ri '/CONFIG_DEBUG_INFO_DWARF5*/c\# CONFIG_DEBUG_INFO_DWARF5 is not set' ${config}
-        sudo sed -ri '/CONFIG_MODULE_SIG_KEY_TYPE_RSA*/c\# CONFIG_MODULE_SIG_KEY_TYPE_RSA is not set' ${config}
-        sudo sed -ri '/CONFIG_MODULE_SIG_KEY=*/c\CONFIG_MODULE_SIG_KEY=""' ${config}
-        sudo sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS=*/c\CONFIG_SYSTEM_TRUSTED_KEYS=""' ${config}
-        echo "::set-output name=status::success"
-        
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      - name: Initialize environment
+        run: |
+          sudo -E sed -i~orig -e 's/# deb-src/deb-src/' /etc/apt/sources.list   
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install bzip2 gawk git unzip htop wget curl -y
+          sudo timedatectl set-timezone "$TZ"
+          sudo mkdir -p /workdir/upload
+          sudo chown $USER:$GROUPS /workdir /workdir/upload
+
+      - name: Check for updates
+        id: check
+        run: |
+          config_path=/home/runner/work/kernel/kernel/config_elrepo
+          action_kernel_ver=$(grep "Linux/x86_64" $config_path | awk -F '[- ]' '{print $3}')
+          kernel_ver=$(curl -s https://www.kernel.org/ | grep -oP 'Linux/x86_64/\K[^<]+' | head -n 1)
+          echo "action_kernel_ver=$action_kernel_ver"
+          echo "kernel_ver=$kernel_ver"
+          echo "status=$(if [[ $action_kernel_ver == *"$kernel_ver"* ]]; then echo fail; else echo success; fi)" >> $GITHUB_ENV
+
+      - name: Update config
+        id: update
+        if: steps.check.outputs.status == 'success'
+        run: |
+          sudo apt-get -qq install -y rpm2cpio 
+          elrepo_c7_ver=$(curl -s 'https://elrepo.org/linux/kernel/el7/x86_64/RPMS/?C=N;O=D' | grep -oP 'kernel-ml-headers[^"]+' | head -n 1 | awk -F '-' '{print $4}')
+          sudo wget https://elrepo.org/linux/kernel/el7/x86_64/RPMS/kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm
+          sudo rpm2cpio kernel-ml-$elrepo_c7_ver-1.el7.elrepo.x86_64.rpm | cpio -divm
+          cd /workdir/boot
+          config=/home/runner/work/kernel/kernel/config_elrepo
+          elrepo_patch=/home/runner/work/kernel/kernel/elrepo_config.patch
+
+          sudo rm -rf $config
+          sudo mv config-*-1.el7.elrepo.x86_64 $config
+          sudo sed -ri 's/.*CONFIG_TCP_CONG_CUBIC.*/CONFIG_TCP_CONG_CUBIC=m/' ${config}
+          sudo sed -ri 's/.*CONFIG_TCP_CONG_BBR.*/CONFIG_TCP_CONG_BBR=y/' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/i\CONFIG_TCP_CONG_BBR2=m' ${config}
+          sudo sed -ri '/CONFIG_TCP_CONG_BBR2=m/a CONFIG_TCP_CONG_BBR3=m' ${config}
+          sudo sed -ri 's/.*CONFIG_DEFAULT_TCP_CONG.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' ${config}
+          sudo sed -ri 's/.*CONFIG_NET_SCH_PIE.*/CONFIG_NET_SCH_PIE=y/' ${config}
+          sudo sed -ri 's/.*CONFIG_NET_SCH_FQ_PIE.*/CONFIG_NET_SCH_FQ_PIE=y/' ${config}
+          sudo sed -ri 's/.*CONFIG_NET_SCH_DEFAULT.*/CONFIG_NET_SCH_DEFAULT=y/' ${config}
+          sudo sed -ri '/.*CONFIG_NET_SCH_FQ_PIE.*/i\CONFIG_DEFAULT_FQ_PIE=y' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_FQ_PIE.*/i\CONFIG_DEFAULT_NET_SCH="fq_pie"' ${config}
+          sudo sed -ri '/CONFIG_XEN_BLKDEV_FRONTEND/s/=.+/=y/g' ${config}
+          sudo sed -ri '/CONFIG_XEN_NETDEV_FRONTEND/s/=.+/=y/g' ${config}
+          sudo sed -ri '/CONFIG_VIRTIO_BLK/s/=.+/=y/g' ${config}
+          sudo sed -ri '/CONFIG_VIRTIO_NET/s/=.+/=y/g' ${config}
+          sudo sed -ri '/CONFIG_TLS/s/=.+/=y/g' ${config}
+          sudo sed -ri '/CONFIG_TLS_DEVICE/s/=.+/=y/g' ${config}
+          #sudo sed -ri '/CONFIG_MPTCP*/c\CONFIG_MPTCP=y' ${config}
+          #sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
+          #sudo sed -i 's/.*CONFIG_KERNEL_ZSTD.*/CONFIG_KERNEL_ZSTD=n/' ${config}
+          #sudo sed -i 's/.*CONFIG_RD_ZSTD.*/CONFIG_RD_ZSTD=n/' ${config}
+          #sudo sed -i 's/.*CONFIG_MODULE_COMPRESS_ZSTD.*/CONFIG_MODULE_COMPRESS_ZSTD=n/' ${config}
+          #sudo sed -i 's/.*ZSWAP_COMPRESSOR_DEFAULT_ZSTD.*/ZSWAP_COMPRESSOR_DEFAULT_ZSTD=n/' ${config}
+          #sudo sed -i 's/.*CONFIG_CRYPTO_ZSTD.*/CONFIG_CRYPTO_ZSTD=n/' ${config}
+          #sudo sed -i 's/.*CONFIG_F2FS_FS_ZSTD.*/CONFIG_F2FS_FS_ZSTD=n/' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_RENO.*/d' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_CUBIC.*/d' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_FQ.*/d' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_CODEL.*/d' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_FQ_CODEL.*/d' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_SFQ.*/d' ${config}
+          sudo sed -ri '/.*CONFIG_DEFAULT_PFIFO_FAST.*/d' ${config}
+
+          sudo sed -ri '/CONFIG_HAVE_ARCH_KCSAN*/c\# CONFIG_HAVE_ARCH_KCSAN is not set' ${config}
+          sudo sed -ri '/CONFIG_DEBUG_INFO_NONE*/c\# CONFIG_DEBUG_INFO_NONE is not set' ${config}
+          sudo sed -ri '/CONFIG_MODULE_SIG=y/c\# CONFIG_MODULE_SIG is not set' ${config}
+          sudo sed -ri '/CONFIG_MODULE_SIG_ALL*/c\# CONFIG_MODULE_SIG_ALL is not set' ${config}
+          sudo sed -ri '/CONFIG_DEBUG_INFO=*/c\# CONFIG_DEBUG_INFO is not set' ${config}
+          sudo sed -ri '/CONFIG_DEBUG_INFO_NONE*/c\# CONFIG_DEBUG_INFO_NONE is not set' ${config}
+          sudo sed -ri '/CONFIG_DEBUG_INFO_DWARF4*/c\# CONFIG_DEBUG_INFO_DWARF4 is not set' ${config}
+          sudo sed -ri '/CONFIG_DEBUG_INFO_BTF*/c\# CONFIG_DEBUG_INFO_BTF is not set' ${config}
+          sudo sed -ri '/CONFIG_DEBUG_INFO_DWARF5*/c\# CONFIG_DEBUG_INFO_DWARF5 is not set' ${config}
+          sudo sed -ri '/CONFIG_MODULE_SIG_KEY_TYPE_RSA*/c\# CONFIG_MODULE_SIG_KEY_TYPE_RSA is not set' ${config}
+          sudo sed -ri '/CONFIG_MODULE_SIG_KEY=*/c\CONFIG_MODULE_SIG_KEY=""' ${config}
+          sudo sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS=*/c\CONFIG_SYSTEM_TRUSTED_KEYS=""' ${config}
           
-    - name: Commit files
-      continue-on-error: true
-      if: steps.update.outputs.status == 'success'
-      run: |
-        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git commit -m "Add changes" -a
-    - name: Push changes
-      continue-on-error: true
-      if: steps.update.outputs.status == 'success'
-      uses: ad-m/github-push-action@master
-      with:
-        github_token: ${{ secrets.TOKEN }}
-        branch: ${{ github.ref }}
+          echo "status=success" >> $GITHUB_ENV
+
+      - name: SSH connection to Actions
+        uses: P3TERX/ssh2actions@v1.0.0
+        if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh != 'false') || contains(github.event.action, 'ssh')
+        env:
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+      - name: Commit files
+        continue-on-error: true
+        if: steps.update.outputs.status == 'success'
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Add changes" -a
+
+      - name: Push changes
+        continue-on-error: true
+        if: steps.update.outputs.status == 'success'
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.TOKEN }}
+          branch: ${{ github.ref }}
