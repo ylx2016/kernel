@@ -42,13 +42,14 @@ jobs:
         echo "github_ver=" $github_ver
         echo "kernel_ver=" $kernel_ver
         if [[ $github_ver == *"$kernel_ver"* ]]; then
-            echo '::set-output name=action_echo::enabled'
-            echo "::set-output name=status::fail"
+            echo "action_echo=enabled" >> $GITHUB_ENV
+            echo "status=fail" >> $GITHUB_ENV
         else
-            echo '::set-output name=action_echo::enabled'
-            echo "::set-output name=status::success"
+            echo "action_echo=enabled" >> $GITHUB_ENV
+            echo "status=success" >> $GITHUB_ENV
         fi
 
+		
     - name: Get source code
       id: code
       working-directory: /workdir
@@ -59,9 +60,10 @@ jobs:
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
-        echo '::set-output name=action_echo::enabled'
-        echo "::set-output name=status::success"
+        echo "action_echo=enabled" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_ENV
 
+		
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
       if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
@@ -89,10 +91,10 @@ jobs:
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) bindeb-pkg
         cd /workdir && mv *.deb /workdir/upload
-        echo '::set-output name=action_echo::enabled'
-        echo "::set-output name=status::success"
-        echo "FILE_DATE=Kernel_Debian_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
-
+        echo "action_echo=enabled" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_ENV
+        echo "FILE_DATE=Kernel_Debian_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+		
     - name: Check space usage
       if: (!cancelled()) && steps.compile.outputs.status == 'success'
       run: df -hT
@@ -111,20 +113,20 @@ jobs:
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress /workdir/upload 2>&1 | tee wetransfer.log
         echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-        echo '::set-output name=action_echo::enabled'
-        echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"     
+        echo "action_echo=enabled" >> $GITHUB_ENV
+        echo "url=$(cat wetransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_ENV
 
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo '::set-output name=action_echo::enabled'
-        echo "::set-output name=release_tag::Debian_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")"
+        echo "set-output name=action_echo::enabled" >> $GITHUB_ENV
+        echo "release_tag=Debian_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
         touch release.txt
-        echo '::set-output name=action_echo::enabled'
-        echo "::set-output name=status::success"
-
+        echo "action_echo=enabled" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_ENV
+		
     - name: Upload kernel to release
       uses: softprops/action-gh-release@v1
       if: steps.tag.outputs.status == 'success' && !cancelled()
