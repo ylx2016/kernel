@@ -41,10 +41,10 @@ jobs:
             echo "action_echo=enabled" >> $GITHUB_ENV
             echo "versions.status=success" >> $GITHUB_ENV
         fi
-        echo env.versions.status
+        echo ${{env.versions.status}}
 
     - name: Get Source Code
-      if: env.versions.status == 'success'
+      if: ${{env.versions.status}} == 'success'
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
