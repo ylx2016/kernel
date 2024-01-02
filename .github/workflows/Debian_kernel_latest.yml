@@ -41,6 +41,7 @@ jobs:
             echo "action_echo=enabled" >> $GITHUB_ENV
             echo "versions.status=success" >> $GITHUB_ENV
         fi
+        echo env.versions.status
 
     - name: Get Source Code
       if: env.versions.status == 'success'
