@@ -43,7 +43,7 @@ jobs:
         fi
 
     - name: Get Source Code
-      if: versions.status == 'success'
+      if: env.versions.status == 'success'
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
