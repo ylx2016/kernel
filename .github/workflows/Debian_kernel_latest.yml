@@ -41,10 +41,10 @@ jobs:
             echo "action_echo=enabled" >> $GITHUB_ENV
             echo "versions.status=success" >> $GITHUB_ENV
         fi
-        echo ${{env.versions.status}}
+        echo ${{ env.versions.status }}
 
     - name: Get Source Code
-      if: ${{env.versions.status}} == 'success'
+      if: ${{ env.versions.status }} == 'success'
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
@@ -55,7 +55,7 @@ jobs:
         echo "code.status=success" >> $GITHUB_ENV
 
     - name: Compile Kernel
-      if: env.versions.status == 'success' && env.code.status == 'success'
+      if: ${{ env.versions.status }} == 'success' && ${{ env.code.status }} == 'success'
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
@@ -78,13 +78,13 @@ jobs:
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@main
-      if: env.compile.status == 'success' && env.UPLOAD_DIR == 'true'
+      if: ${{ env.compile.status }} == 'success' && ${{ env.UPLOAD_DIR }} == 'true'
       with:
         name: ${{ env.FILE_DATE }}
         path: /workdir/upload
 
     - name: Upload to WeTransfer
-      if: env.compile.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      if: ${{ env.compile.status }} == 'success' && ${{ env.UPLOAD_WETRANSFER }} == 'true' && !cancelled()
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress /workdir/upload 2>&1 | tee wetransfer.log
@@ -94,7 +94,7 @@ jobs:
 
     - name: Generate release tag
       id: tag
-      if: env.UPLOAD_RELEASE == 'true' && env.compile == 'success' && !cancelled()
+      if: ${{ env.UPLOAD_RELEASE }} == 'true' && ${{ env.compile }} = == 'success' && !cancelled()
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         echo "action_echo=enabled" >> $GITHUB_ENV
@@ -104,7 +104,7 @@ jobs:
 
     - name: Upload Kernel to release
       uses: softprops/action-gh-release@v1
-      if: env.tag.status == 'success' && !cancelled()
+      if: ${{ env.tag.status }} == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.TOKEN }}
       with:
