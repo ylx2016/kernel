@@ -45,6 +45,7 @@ jobs:
 
     - name: Get Source Code
       if: ${{ env.versions.status }} == 'success'
+      working-directory: /workdir
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
@@ -56,6 +57,7 @@ jobs:
 
     - name: Compile Kernel
       if: ${{ env.versions.status }} == 'success' && ${{ env.code.status }} == 'success'
+      working-directory: /workdir
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
