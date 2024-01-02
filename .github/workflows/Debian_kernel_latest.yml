@@ -107,7 +107,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.TOKEN }}
       with:
-        tag_name: ${{ release_tag }}
+        tag_name: ${{ tag.release_tag }}
         body_path: release.txt
         files: /workdir/upload/*
 
