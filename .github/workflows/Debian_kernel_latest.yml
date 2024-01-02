@@ -36,14 +36,14 @@ jobs:
         echo "kernel_ver=$kernel_ver"
         if [[ $github_ver == *"$kernel_ver"* ]]; then
             echo "action_echo=enabled" >> $GITHUB_ENV
-            echo "status=fail" >> $GITHUB_ENV
+            echo "versions.status=fail" >> $GITHUB_ENV
         else
             echo "action_echo=enabled" >> $GITHUB_ENV
-            echo "status=success" >> $GITHUB_ENV
+            echo "versions.status=success" >> $GITHUB_ENV
         fi
 
     - name: Get Source Code
-      if: steps.versions.outputs.status == 'success'
+      if: versions.status == 'success'
       run: |
         df -hT $PWD
         kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
@@ -51,10 +51,10 @@ jobs:
         wget -O kernel.tar.xz $kernel_file
         tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
         echo "action_echo=enabled" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_ENV
+        echo "code.status=success" >> $GITHUB_ENV
 
     - name: Compile Kernel
-      if: steps.versions.outputs.status == 'success' && steps.code.outputs.status == 'success'
+      if: versions.status == 'success' && code.status == 'success'
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
         cd linux-$kernel_ver
@@ -72,18 +72,18 @@ jobs:
         sudo time make -j$(nproc) bindeb-pkg
         cd /workdir && mv *.deb /workdir/upload
         echo "action_echo=enabled" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_ENV
+        echo "compile.status=success" >> $GITHUB_ENV
         echo "FILE_DATE=Kernel_Debian_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_DIR == 'true'
+      if: compile.status == 'success' && env.UPLOAD_DIR == 'true'
       with:
         name: ${{ env.FILE_DATE }}
         path: /workdir/upload
 
     - name: Upload to WeTransfer
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      if: compile.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
       run: |
         curl -fsSL git.io/file-transfer | sh
         ./transfer wet -s -p 16 --no-progress /workdir/upload 2>&1 | tee wetransfer.log
@@ -99,15 +99,15 @@ jobs:
         echo "action_echo=enabled" >> $GITHUB_ENV
         echo "release_tag=Debian_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
         touch release.txt
-        echo "status=success" >> $GITHUB_ENV
+        echo "tag.status=success" >> $GITHUB_ENV
 
     - name: Upload Kernel to release
       uses: softprops/action-gh-release@v1
-      if: steps.tag.outputs.status == 'success' && !cancelled()
+      if: tag.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.TOKEN }}
       with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
+        tag_name: ${{ release_tag }}
         body_path: release.txt
         files: /workdir/upload/*
 
@@ -115,4 +115,4 @@ jobs:
       uses: GitRML/delete-workflow-runs@main
       with:
         retain_days: 1
-        keep_minimum_runs: 10
+        keep_minimum_runs: 5
