@@ -123,3 +123,10 @@ jobs:
         with:
           github_token: ${{ secrets.TOKEN }}
           branch: ${{ github.ref }}
+
+      - name: Delete workflow runs
+        uses: GitRML/delete-workflow-runs@main
+        with:
+          token: ${{ secrets.TOKEN }}
+          retain_days: 1
+          keep_minimum_runs: 3
