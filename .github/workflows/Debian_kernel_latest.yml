@@ -120,4 +120,4 @@ jobs:
         token: ${{ secrets.TOKEN }}
         repository: ${{ github.repository }}
         retain_days: 1
-        keep_minimum_runs: 5
+        keep_minimum_runs: 2
