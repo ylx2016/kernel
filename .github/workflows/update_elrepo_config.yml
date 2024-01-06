@@ -50,6 +50,7 @@ jobs:
       - name: Update config
         id: update
         if: ${{ env.check.status }} == 'success'
+        working-directory: /workdir
         run: |
           sudo apt-get -qq install -y rpm2cpio 
           elrepo_c7_ver=$(curl -s 'https://elrepo.org/linux/kernel/el7/x86_64/RPMS/?C=N;O=D' | grep -oP 'kernel-ml-headers[^"]+' | head -n 1 | awk -F '-' '{print $4}')
