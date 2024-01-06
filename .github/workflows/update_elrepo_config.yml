@@ -42,14 +42,14 @@ jobs:
           echo "action_kernel_ver=$action_kernel_ver"
           echo "kernel_ver=$kernel_ver"
           if [[ "${action_kernel_ver}" == *"${kernel_ver}"* ]]; then
-           echo "status=fail" >> $GITHUB_ENV
+           echo "check.status=fail" >> $GITHUB_ENV
           else
-           echo "status=success" >> $GITHUB_ENV
+           echo "check.status=success" >> $GITHUB_ENV
           fi
 
       - name: Update config
         id: update
-        if: steps.check.outputs.status == 'success'
+        if: ${{ env.check.status }} == 'success'
         run: |
           sudo apt-get -qq install -y rpm2cpio 
           elrepo_c7_ver=$(curl -s 'https://elrepo.org/linux/kernel/el7/x86_64/RPMS/?C=N;O=D' | grep -oP 'kernel-ml-headers[^"]+' | head -n 1 | awk -F '-' '{print $4}')
@@ -106,11 +106,11 @@ jobs:
           sudo sed -ri '/CONFIG_MODULE_SIG_KEY=*/c\CONFIG_MODULE_SIG_KEY=""' ${config}
           sudo sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS=*/c\CONFIG_SYSTEM_TRUSTED_KEYS=""' ${config}
           
-          echo "status=success" >> $GITHUB_ENV
+          echo "update.status=success" >> $GITHUB_ENV
 
       - name: Commit files
         continue-on-error: true
-        if: steps.update.outputs.status == 'success'
+        if: ${{ env.update.status }} == 'success'
         run: |
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -118,7 +118,7 @@ jobs:
 
       - name: Push changes
         continue-on-error: true
-        if: steps.update.outputs.status == 'success'
+        if: ${{ env.update.status }} == 'success'
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.TOKEN }}
