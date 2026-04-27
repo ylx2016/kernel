@@ -36,10 +36,10 @@ jobs:
         df -h
 
     - name: Install Dependencies
-      # 【修正点】增加了 debhelper, libdw-dev 和 rsync 以满足 bindeb-pkg 的打包依赖
+      # 【修正点】增加了 fakeroot，这是无 root 权限下打包 deb 的标准工具
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl debhelper libdw-dev rsync
+        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl debhelper libdw-dev rsync fakeroot
 
     - name: Get Kernel Version & Source
       run: |
@@ -92,9 +92,10 @@ jobs:
 
     - name: Compile Kernel
       working-directory: ${{ env.KERNEL_DIR }}
+      # 【修正点】去掉了 sudo。普通用户编译，打包过程会自动调用 fakeroot 处理权限
       run: |
         echo -e "$(nproc) thread compile"
-        sudo time make -j$(nproc) bindeb-pkg
+        time make -j$(nproc) bindeb-pkg
         
         mkdir -p $GITHUB_WORKSPACE/upload
         cd ..
@@ -128,3 +129,11 @@ jobs:
         tag_name: ${{ env.release_tag }}
         body_path: release.txt
         files: ${{ github.workspace }}/upload/*
+
+    - name: Delete workflow runs
+      uses: GitRML/delete-workflow-runs@main
+      with:
+        token: ${{ secrets.TOKEN }}
+        repository: ${{ github.repository }}
+        retain_days: 1
+        keep_minimum_runs: 2
