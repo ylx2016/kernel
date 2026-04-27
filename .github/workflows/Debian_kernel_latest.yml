@@ -15,7 +15,6 @@ env:
   UPLOAD_RELEASE: true
   UPLOAD_WETRANSFER: false
   TZ: Asia/Shanghai
-  # 修复 Node.js 20 弃用警告，强制 Actions 使用 Node.js 24
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -42,7 +41,6 @@ jobs:
         sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl
 
     - name: Get Kernel Version & Source
-      # 移除了 /mnt 限制，直接使用 Actions 默认的当前目录，拥有完全读写权限
       run: |
         kernel_ver=$(curl -s https://www.kernel.org/ | grep -E -o 'https://cdn.kernel.org/pub/linux/kernel/v[0-9x.]+/linux-[0-9.]+\.tar\.xz' | head -n 1 | awk -F'/' '{print $NF}' | sed 's/linux-//' | sed 's/\.tar\.xz//')
         kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${kernel_ver%%.*}.x/linux-${kernel_ver}.tar.xz"
@@ -54,14 +52,14 @@ jobs:
         wget -O kernel.tar.xz "$kernel_url"
         tar -xf kernel.tar.xz
         
-        # 记录解压后的源码目录
         echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
 
     - name: Configure Kernel (Cloud & Network Optimized)
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
         make x86_64_defconfig
-        make kvm_config
+        # 【修正点】应用 KVM 虚拟化专属配置片段
+        make kvm_guest.config
 
         # 开启 TCP 优化 (BBR + FQ)
         scripts/config --enable CONFIG_TCP_CONG_BBR
@@ -89,6 +87,7 @@ jobs:
         scripts/config --disable CONFIG_MEDIA_SUPPORT
         scripts/config --disable CONFIG_DRM
 
+        # 重新生成最终配置
         make olddefconfig
 
     - name: Compile Kernel
@@ -97,7 +96,6 @@ jobs:
         echo -e "$(nproc) thread compile"
         sudo time make -j$(nproc) bindeb-pkg
         
-        # 移至默认工作区的 upload 文件夹
         mkdir -p $GITHUB_WORKSPACE/upload
         cd ..
         mv *.deb $GITHUB_WORKSPACE/upload/
