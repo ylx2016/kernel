@@ -36,7 +36,6 @@ jobs:
         df -h
 
     - name: Install Dependencies
-      # 【修正点】增加了 fakeroot，这是无 root 权限下打包 deb 的标准工具
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl debhelper libdw-dev rsync fakeroot
@@ -61,30 +60,61 @@ jobs:
         make x86_64_defconfig
         make kvm_guest.config
 
-        # 开启 TCP 优化 (BBR + FQ)
+        # --- 云服务器底层驱动兼容性补全 ---
+        # 1. 磁盘与文件系统 (=y 直接编译进内核，防止 initramfs 缺失导致无法进系统)
+        scripts/config --enable CONFIG_EXT4_FS
+        scripts/config --enable CONFIG_XFS_FS
+        scripts/config --enable CONFIG_BTRFS_FS
+        scripts/config --enable CONFIG_VIRTIO_BLK      # KVM VirtIO 磁盘
+        scripts/config --enable CONFIG_SCSI_VIRTIO     # VirtIO SCSI
+        scripts/config --enable CONFIG_VIRTIO_PCI      # VirtIO PCI 总线
+        scripts/config --enable CONFIG_BLK_DEV_NVME    # NVMe 高性能磁盘
+        scripts/config --enable CONFIG_HYPERV_STORAGE  # Azure/Hyper-V 磁盘
+        scripts/config --enable CONFIG_VMWARE_PVSCSI   # VMware 磁盘
+        scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND # Xen 虚拟化磁盘
+
+        # 2. 网络接口驱动 (=y 确保启动后能获取 IP 被 SSH 连接)
+        scripts/config --enable CONFIG_VIRTIO_NET      # KVM VirtIO 网卡
+        scripts/config --enable CONFIG_VMXNET3         # VMware 网卡
+        scripts/config --enable CONFIG_HYPERV_NET      # Azure/Hyper-V 网卡
+        scripts/config --enable CONFIG_XEN_NETDEV_FRONTEND # Xen 网卡
+
+        # 3. 串口与控制台 (=y 确保云服务商 Web VNC / 救援面板能正常输出画面)
+        scripts/config --enable CONFIG_VIRTIO_CONSOLE
+        scripts/config --enable CONFIG_SERIAL_8250
+        scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
+
+        # --- 网络优化 ---
         scripts/config --enable CONFIG_TCP_CONG_BBR
         scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
         scripts/config --enable CONFIG_NET_SCH_FQ
         scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"
 
-        # 关闭调试信息与安全签名
+        # --- 精简与关闭安全签名 (带注释版) ---
+        # 禁用模块签名验证，避免日后加载第三方模块（如 WireGuard 等）报 Key 错误
         scripts/config --disable MODULE_SIG
+        # 禁用各类调试信息，极大缩减内核体积，加快编译速度
         scripts/config --disable DEBUG_INFO
         scripts/config --disable DEBUG_INFO_BTF
         scripts/config --disable DEBUG_INFO_DWARF4
         scripts/config --disable DEBUG_INFO_DWARF5
         scripts/config --disable DEBUG_INFO_NONE
+        # 清空信任密钥证书，防止因为找不到 Debian 官方签名私钥导致编译直接中断报错
         scripts/config --disable SYSTEM_TRUSTED_KEYS
         scripts/config --disable SYSTEM_REVOCATION_KEYS
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
         sed -ri '/CONFIG_SYSTEM_REVOCATION_KEYS/s/=.+/=""/g' .config
 
-        # 深度精简物理硬件驱动
+        # --- 深度精简无用物理设备 (带注释版) ---
+        # 云服务器没有实体声卡，关闭声音总线和驱动
         scripts/config --disable CONFIG_SOUND
         scripts/config --disable CONFIG_SND
+        # 云服务器不需要连物理 WiFi 和蓝牙
         scripts/config --disable CONFIG_WLAN
         scripts/config --disable CONFIG_BT
+        # 云服务器不接摄像头、电视卡等流媒体设备
         scripts/config --disable CONFIG_MEDIA_SUPPORT
+        # 云服务器不需要物理显卡/GPU 驱动（DRM框架），VNC 基础显示即可
         scripts/config --disable CONFIG_DRM
 
         # 重新生成最终配置
@@ -92,7 +122,6 @@ jobs:
 
     - name: Compile Kernel
       working-directory: ${{ env.KERNEL_DIR }}
-      # 【修正点】去掉了 sudo。普通用户编译，打包过程会自动调用 fakeroot 处理权限
       run: |
         echo -e "$(nproc) thread compile"
         time make -j$(nproc) bindeb-pkg
