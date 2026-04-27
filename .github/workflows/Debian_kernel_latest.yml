@@ -128,7 +128,8 @@ jobs:
         
         mkdir -p $GITHUB_WORKSPACE/upload
         cd ..
-        mv *.deb $GITHUB_WORKSPACE/upload/
+        sudo mv *.deb $GITHUB_WORKSPACE/upload/
+        sudo chmod -R 777 $GITHUB_WORKSPACE/upload/
         echo "compile_status=success" >> $GITHUB_ENV
 
     - name: Upload Artifacts
