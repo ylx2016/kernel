@@ -73,6 +73,39 @@ jobs:
         scripts/config --enable CONFIG_VMWARE_PVSCSI   # VMware 磁盘
         scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND # Xen 虚拟化磁盘
 
+        # ==========================================
+        # 模块二：物理主机兼容性拓展 (软路由/NAS/独立服务器)
+        # ==========================================
+        # 1. 物理磁盘控制器 (SATA/AHCI)
+        scripts/config --enable CONFIG_ATA
+        scripts/config --enable CONFIG_SATA_AHCI
+        
+        # 2. USB 总线与 U 盘存储支持 (用于 U 盘启动和外接硬盘)
+        scripts/config --enable CONFIG_USB
+        scripts/config --enable CONFIG_USB_XHCI_HCD
+        scripts/config --enable CONFIG_USB_EHCI_HCD
+        scripts/config --enable CONFIG_USB_STORAGE
+        scripts/config --enable CONFIG_USB_UAS
+
+        # 3. 主流物理网卡驱动 (涵盖软路由、NAS 和服务器常见网卡)
+        scripts/config --enable CONFIG_E1000E       # Intel 千兆 (常见于老款软路由/主板)
+        scripts/config --enable CONFIG_IGB          # Intel 千兆企业级 (服务器/企业 NAS)
+        scripts/config --enable CONFIG_IGC          # Intel i225/i226 2.5G (现代软路由标配，极其重要)
+        scripts/config --enable CONFIG_IXGBE        # Intel 10G 万兆 (服务器/高端 NAS)
+        scripts/config --enable CONFIG_R8169        # Realtek 螃蟹千兆/2.5G (家用主板/普通软路由)
+
+        # 4. 服务器阵列卡与直通卡 (机房托管独立服务器必备)
+        scripts/config --enable CONFIG_MEGARAID_SAS # LSI/Broadcom MegaRAID (最主流的硬 RAID)
+        scripts/config --enable CONFIG_SCSI_MPT3SAS # LSI HBA 直通卡 (TrueNAS 等 ZFS 玩家标配)
+        scripts/config --enable CONFIG_SCSI_HPSA    # HP 惠普服务器自带阵列卡
+
+        # 5. 基础输入与显示 (防止物理机接显示器黑屏、键盘无反应)
+        scripts/config --enable CONFIG_INPUT_KEYBOARD
+        scripts/config --enable CONFIG_KEYBOARD_ATKBD
+        scripts/config --enable CONFIG_USB_HID
+        scripts/config --enable CONFIG_SYSFB_SIMPLEFB
+        scripts/config --enable CONFIG_FB_EFI 
+
         # 2. 网络接口驱动 (=y 确保启动后能获取 IP 被 SSH 连接)
         scripts/config --enable CONFIG_VIRTIO_NET      # KVM VirtIO 网卡
         scripts/config --enable CONFIG_VMXNET3         # VMware 网卡
@@ -124,7 +157,8 @@ jobs:
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
         echo -e "$(nproc) thread compile"
-        time make -j$(nproc) bindeb-pkg
+        # 必须加上 sudo，否则打包 headers 时内部生成的 fixdep 脚本会报权限不足
+        sudo time make -j$(nproc) bindeb-pkg
         
         mkdir -p $GITHUB_WORKSPACE/upload
         cd ..
