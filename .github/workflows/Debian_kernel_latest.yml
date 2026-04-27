@@ -15,132 +15,118 @@ env:
   UPLOAD_RELEASE: true
   UPLOAD_WETRANSFER: false
   TZ: Asia/Shanghai
+  # 修复 Node.js 20 弃用警告，强制 Actions 使用 Node.js 24
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 移除外部 Docker 容器，直接在宿主机编译，速度更快，免去拉取镜像的时间和空间
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Free up disk space (Critical)
-        # 极其重要：清理 GitHub Runner 预装的无用庞大环境，释放近 30GB 空间，彻底杜绝 No space left 错误
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-          sudo apt-get clean
-          df -h
+    - name: Free up disk space (Critical)
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force
+        sudo apt-get clean
+        df -h
 
-      - name: Install Dependencies
-        # 安装 Debian 打包和内核编译所需的必要依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl
 
-      - name: Get Kernel Version & Source
-        working-directory: /mnt
-        run: |
-          # 精简获取版本号的逻辑
-          kernel_ver=$(curl -s https://www.kernel.org/ | grep -E -o 'https://cdn.kernel.org/pub/linux/kernel/v[0-9x.]+/linux-[0-9.]+\.tar\.xz' | head -n 1 | awk -F'/' '{print $NF}' | sed 's/linux-//' | sed 's/\.tar\.xz//')
-          kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${kernel_ver%%.*}.x/linux-${kernel_ver}.tar.xz"
+    - name: Get Kernel Version & Source
+      # 移除了 /mnt 限制，直接使用 Actions 默认的当前目录，拥有完全读写权限
+      run: |
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep -E -o 'https://cdn.kernel.org/pub/linux/kernel/v[0-9x.]+/linux-[0-9.]+\.tar\.xz' | head -n 1 | awk -F'/' '{print $NF}' | sed 's/linux-//' | sed 's/\.tar\.xz//')
+        kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${kernel_ver%%.*}.x/linux-${kernel_ver}.tar.xz"
+        
+        echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
+        echo "FILE_DATE=Kernel_Debian_Cloud_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        
+        echo "Downloading Linux Kernel $kernel_ver..."
+        wget -O kernel.tar.xz "$kernel_url"
+        tar -xf kernel.tar.xz
+        
+        # 记录解压后的源码目录
+        echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
 
-          echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
-          echo "FILE_DATE=Kernel_Debian_Cloud_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+    - name: Configure Kernel (Cloud & Network Optimized)
+      working-directory: ${{ env.KERNEL_DIR }}
+      run: |
+        make x86_64_defconfig
+        make kvm_config
 
-          echo "Downloading Linux Kernel $kernel_ver..."
-          wget -O kernel.tar.xz "$kernel_url"
-          tar -xf kernel.tar.xz
+        # 开启 TCP 优化 (BBR + FQ)
+        scripts/config --enable CONFIG_TCP_CONG_BBR
+        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
+        scripts/config --enable CONFIG_NET_SCH_FQ
+        scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"
 
-          # 将解压后的目录名写入环境变量供后续步骤使用
-          echo "KERNEL_DIR=/mnt/linux-$kernel_ver" >> $GITHUB_ENV
+        # 关闭调试信息与安全签名
+        scripts/config --disable MODULE_SIG
+        scripts/config --disable DEBUG_INFO
+        scripts/config --disable DEBUG_INFO_BTF
+        scripts/config --disable DEBUG_INFO_DWARF4
+        scripts/config --disable DEBUG_INFO_DWARF5
+        scripts/config --disable DEBUG_INFO_NONE
+        scripts/config --disable SYSTEM_TRUSTED_KEYS
+        scripts/config --disable SYSTEM_REVOCATION_KEYS
+        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
+        sed -ri '/CONFIG_SYSTEM_REVOCATION_KEYS/s/=.+/=""/g' .config
 
-      - name: Configure Kernel (Cloud & Network Optimized)
-        working-directory: ${{ env.KERNEL_DIR }}
-        run: |
-          # 1. 基础配置：x86_64 默认 + KVM 虚拟化专供配置 (极速编译的核心)
-          make x86_64_defconfig
-          make kvm_config
+        # 深度精简物理硬件驱动
+        scripts/config --disable CONFIG_SOUND
+        scripts/config --disable CONFIG_SND
+        scripts/config --disable CONFIG_WLAN
+        scripts/config --disable CONFIG_BT
+        scripts/config --disable CONFIG_MEDIA_SUPPORT
+        scripts/config --disable CONFIG_DRM
 
-          # 2. 动态开关参数脚本
-          # 开启网络优化 (BBR + FQ)
-          scripts/config --enable CONFIG_TCP_CONG_BBR
-          scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
-          scripts/config --enable CONFIG_NET_SCH_FQ
-          scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"
+        make olddefconfig
 
-          # 关闭调试信息与安全签名 (节省空间和编译时间)
-          scripts/config --disable MODULE_SIG
-          scripts/config --disable DEBUG_INFO
-          scripts/config --disable DEBUG_INFO_BTF
-          scripts/config --disable DEBUG_INFO_DWARF4
-          scripts/config --disable DEBUG_INFO_DWARF5
-          scripts/config --disable DEBUG_INFO_NONE
-          scripts/config --disable SYSTEM_TRUSTED_KEYS
-          scripts/config --disable SYSTEM_REVOCATION_KEYS
-          sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
-          sed -ri '/CONFIG_SYSTEM_REVOCATION_KEYS/s/=.+/=""/g' .config
+    - name: Compile Kernel
+      working-directory: ${{ env.KERNEL_DIR }}
+      run: |
+        echo -e "$(nproc) thread compile"
+        sudo time make -j$(nproc) bindeb-pkg
+        
+        # 移至默认工作区的 upload 文件夹
+        mkdir -p $GITHUB_WORKSPACE/upload
+        cd ..
+        mv *.deb $GITHUB_WORKSPACE/upload/
+        echo "compile_status=success" >> $GITHUB_ENV
 
-          # 深度精简：关闭云服务器绝对用不到的物理硬件支持
-          scripts/config --disable CONFIG_SOUND
-          scripts/config --disable CONFIG_SND
-          scripts/config --disable CONFIG_WLAN
-          scripts/config --disable CONFIG_BT
-          scripts/config --disable CONFIG_MEDIA_SUPPORT
-          scripts/config --disable CONFIG_DRM
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      if: ${{ env.compile_status == 'success' && env.UPLOAD_DIR == 'true' }}
+      with:
+        name: ${{ env.FILE_DATE }}
+        path: ${{ github.workspace }}/upload/
 
-          # 应用配置修正
-          make olddefconfig
+    - name: Upload to WeTransfer
+      if: ${{ env.compile_status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled() }}
+      run: |
+        curl -fsSL git.io/file-transfer | sh
+        ./transfer wet -s -p 16 --no-progress ${{ github.workspace }}/upload 2>&1 | tee wetransfer.log
+        echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
 
-      - name: Compile Kernel
-        working-directory: ${{ env.KERNEL_DIR }}
-        run: |
-          echo -e "$(nproc) thread compile"
-          # 编译 deb 包
-          sudo time make -j$(nproc) bindeb-pkg
+    - name: Generate release tag
+      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+      run: |
+        echo "release_tag=Debian_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
+        touch release.txt
 
-          # 移动编译好的 deb 文件到统一的上传目录
-          mkdir -p /mnt/upload
-          cd ..
-          mv *.deb /mnt/upload/
-          echo "compile_status=success" >> $GITHUB_ENV
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        if: ${{ env.compile_status == 'success' && env.UPLOAD_DIR == 'true' }}
-        with:
-          name: ${{ env.FILE_DATE }}
-          path: /mnt/upload/
-
-      - name: Upload to WeTransfer
-        if: ${{ env.compile_status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled() }}
-        run: |
-          curl -fsSL git.io/file-transfer | sh
-          ./transfer wet -s -p 16 --no-progress /mnt/upload 2>&1 | tee wetransfer.log
-          echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
-
-      - name: Generate release tag
-        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
-        run: |
-          echo "release_tag=Debian_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
-          touch release.txt
-
-      - name: Upload Kernel to Release
-        uses: softprops/action-gh-release@v2
-        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
-        with:
-          tag_name: ${{ env.release_tag }}
-          body_path: release.txt
-          files: /mnt/upload/*
-
-      - name: Delete workflow runs
-        uses: GitRML/delete-workflow-runs@main
-        with:
-          token: ${{ secrets.TOKEN }}
-          repository: ${{ github.repository }}
-          retain_days: 1
-          keep_minimum_runs: 2
+    - name: Upload Kernel to Release
+      uses: softprops/action-gh-release@v2
+      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+      with:
+        tag_name: ${{ env.release_tag }}
+        body_path: release.txt
+        files: ${{ github.workspace }}/upload/*
