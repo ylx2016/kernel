@@ -60,95 +60,160 @@ jobs:
         make x86_64_defconfig
         make kvm_guest.config
 
-        # --- 云服务器底层驱动兼容性补全 ---
-        # 1. 磁盘与文件系统 (=y 直接编译进内核，防止 initramfs 缺失导致无法进系统)
-        scripts/config --enable CONFIG_EXT4_FS
-        scripts/config --enable CONFIG_XFS_FS
-        scripts/config --enable CONFIG_BTRFS_FS
-        scripts/config --enable CONFIG_VIRTIO_BLK      # KVM VirtIO 磁盘
-        scripts/config --enable CONFIG_SCSI_VIRTIO     # VirtIO SCSI
-        scripts/config --enable CONFIG_VIRTIO_PCI      # VirtIO PCI 总线
-        scripts/config --enable CONFIG_BLK_DEV_NVME    # NVMe 高性能磁盘
-        scripts/config --enable CONFIG_HYPERV_STORAGE  # Azure/Hyper-V 磁盘
-        scripts/config --enable CONFIG_VMWARE_PVSCSI   # VMware 磁盘
-        scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND # Xen 虚拟化磁盘
+        # ==========================================
+        # 模块一：云服务器底层驱动 (确保在各类 VPS/云主机上正常启动)
+        # ==========================================
+        # 1. 基础文件系统 (直接编入内核，防止找不到启动盘)
+        scripts/config --enable CONFIG_EXT4_FS                 # 默认主流文件系统
+        scripts/config --enable CONFIG_XFS_FS                  # 高性能文件系统
+        scripts/config --enable CONFIG_BTRFS_FS                # 高级文件系统 (快照支持)
+
+        # 2. 云主机磁盘控制器
+        scripts/config --enable CONFIG_VIRTIO_BLK              # KVM VirtIO 磁盘 (最常见)
+        scripts/config --enable CONFIG_SCSI_VIRTIO             # VirtIO SCSI 接口
+        scripts/config --enable CONFIG_VIRTIO_PCI              # VirtIO PCI 总线驱动
+        scripts/config --enable CONFIG_BLK_DEV_NVME            # NVMe 固态硬盘 (高性能云主机)
+        scripts/config --enable CONFIG_HYPERV_STORAGE          # 兼容 Azure / Hyper-V 底层
+        scripts/config --enable CONFIG_VMWARE_PVSCSI           # 兼容 VMware 虚拟化底层
+        scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND     # 兼容 Xen 虚拟化底层 (如早期 AWS)
+
+        # 3. 云主机虚拟网卡与控制台
+        scripts/config --enable CONFIG_VIRTIO_NET              # KVM VirtIO 网卡
+        scripts/config --enable CONFIG_VMXNET3                 # VMware 增强型网卡
+        scripts/config --enable CONFIG_HYPERV_NET              # Azure / Hyper-V 网卡
+        scripts/config --enable CONFIG_XEN_NETDEV_FRONTEND     # Xen 网卡
+        scripts/config --enable CONFIG_VIRTIO_CONSOLE          # VirtIO 控制台 (供 VNC 面板输出)
+        scripts/config --enable CONFIG_SERIAL_8250             # 基础串口驱动
+        scripts/config --enable CONFIG_SERIAL_8250_CONSOLE     # 串口控制台输出显示
 
         # ==========================================
-        # 模块二：物理主机兼容性拓展 (软路由/NAS/独立服务器)
+        # 模块二：物理主机扩展 (兼顾软路由、NAS、独立服务器)
         # ==========================================
-        # 1. 物理磁盘控制器 (SATA/AHCI)
-        scripts/config --enable CONFIG_ATA
-        scripts/config --enable CONFIG_SATA_AHCI
-        
-        # 2. USB 总线与 U 盘存储支持 (用于 U 盘启动和外接硬盘)
-        scripts/config --enable CONFIG_USB
-        scripts/config --enable CONFIG_USB_XHCI_HCD
-        scripts/config --enable CONFIG_USB_EHCI_HCD
-        scripts/config --enable CONFIG_USB_STORAGE
-        scripts/config --enable CONFIG_USB_UAS
+        # 1. 物理磁盘与阵列卡
+        scripts/config --enable CONFIG_ATA                     # 基础 ATA 设备
+        scripts/config --enable CONFIG_SATA_AHCI               # 主板原生 SATA 硬盘接口
+        scripts/config --enable CONFIG_MEGARAID_SAS            # LSI/Broadcom 硬件阵列卡 (机房独立服务器必备)
+        scripts/config --enable CONFIG_SCSI_MPT3SAS            # LSI HBA 直通卡 (TrueNAS/ZFS 存储玩家标配)
+        scripts/config --enable CONFIG_SCSI_HPSA               # HP 惠普服务器原生阵列卡
 
-        # 3. 主流物理网卡驱动 (涵盖软路由、NAS 和服务器常见网卡)
-        scripts/config --enable CONFIG_E1000E       # Intel 千兆 (常见于老款软路由/主板)
-        scripts/config --enable CONFIG_IGB          # Intel 千兆企业级 (服务器/企业 NAS)
-        scripts/config --enable CONFIG_IGC          # Intel i225/i226 2.5G (现代软路由标配，极其重要)
-        scripts/config --enable CONFIG_IXGBE        # Intel 10G 万兆 (服务器/高端 NAS)
-        scripts/config --enable CONFIG_R8169        # Realtek 螃蟹千兆/2.5G (家用主板/普通软路由)
+        # 2. USB 与输入输出 (防止物理机接显示器黑屏、键盘失效)
+        scripts/config --enable CONFIG_USB                     # USB 核心总线
+        scripts/config --enable CONFIG_USB_XHCI_HCD            # USB 3.0 控制器
+        scripts/config --enable CONFIG_USB_EHCI_HCD            # USB 2.0 控制器
+        scripts/config --enable CONFIG_USB_STORAGE             # U盘及移动硬盘支持
+        scripts/config --enable CONFIG_USB_UAS                 # USB 附加 SCSI 协议 (高速外接硬盘盒)
+        scripts/config --enable CONFIG_INPUT_KEYBOARD          # 键盘输入支持
+        scripts/config --enable CONFIG_KEYBOARD_ATKBD          # 标准 PS/2 键盘
+        scripts/config --enable CONFIG_USB_HID                 # USB 键鼠
+        scripts/config --enable CONFIG_SYSFB_SIMPLEFB          # 基础系统帧缓冲 (亮机必备)
+        scripts/config --enable CONFIG_FB_EFI                  # UEFI 环境基础显示输出
 
-        # 4. 服务器阵列卡与直通卡 (机房托管独立服务器必备)
-        scripts/config --enable CONFIG_MEGARAID_SAS # LSI/Broadcom MegaRAID (最主流的硬 RAID)
-        scripts/config --enable CONFIG_SCSI_MPT3SAS # LSI HBA 直通卡 (TrueNAS 等 ZFS 玩家标配)
-        scripts/config --enable CONFIG_SCSI_HPSA    # HP 惠普服务器自带阵列卡
+        # 3. 物理网卡 (软路由/家庭宽带节点)
+        scripts/config --enable CONFIG_E1000E                  # Intel 千兆网卡
+        scripts/config --enable CONFIG_IGB                     # Intel 千兆企业级网卡
+        scripts/config --enable CONFIG_IGC                     # Intel i225/i226 2.5G 网卡 (现代软路由核心标配)
+        scripts/config --enable CONFIG_IXGBE                   # Intel 10G 万兆光口网卡
+        scripts/config --enable CONFIG_R8169                   # Realtek (螃蟹) 千兆/2.5G 家用网卡
 
-        # 5. 基础输入与显示 (防止物理机接显示器黑屏、键盘无反应)
-        scripts/config --enable CONFIG_INPUT_KEYBOARD
-        scripts/config --enable CONFIG_KEYBOARD_ATKBD
-        scripts/config --enable CONFIG_USB_HID
-        scripts/config --enable CONFIG_SYSFB_SIMPLEFB
-        scripts/config --enable CONFIG_FB_EFI 
+        # ==========================================
+        # 模块三：核心网络与隧道优化 (TCP 发包与 VPN 虚拟网卡)
+        # ==========================================
+        # 1. 拥塞控制与队列 (Web 资源分发、CDN 回源极速优化)
+        scripts/config --enable CONFIG_TCP_CONG_BBR            # 开启 BBR 拥塞控制算法
+        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr" # 设为系统默认算法
+        scripts/config --enable CONFIG_NET_SCH_FQ              # 开启 FQ (Fair Queue) 流量调度
+        scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"   # 设为默认队列 (BBR 最佳搭档)
 
-        # 2. 网络接口驱动 (=y 确保启动后能获取 IP 被 SSH 连接)
-        scripts/config --enable CONFIG_VIRTIO_NET      # KVM VirtIO 网卡
-        scripts/config --enable CONFIG_VMXNET3         # VMware 网卡
-        scripts/config --enable CONFIG_HYPERV_NET      # Azure/Hyper-V 网卡
-        scripts/config --enable CONFIG_XEN_NETDEV_FRONTEND # Xen 网卡
+        # 2. 虚拟网络接口 (sing-box, Xray, Tailscale 等代理刚需)
+        scripts/config --enable CONFIG_TUN                     # TUN/TAP 设备 (提供三层/二层虚拟隧道)
+        scripts/config --enable CONFIG_DUMMY                   # Dummy 虚拟网卡 (常用于高级路由伪装)
+        scripts/config --enable CONFIG_WIREGUARD               # 内核级 WireGuard 协议 (提升异地组网性能)
 
-        # 3. 串口与控制台 (=y 确保云服务商 Web VNC / 救援面板能正常输出画面)
-        scripts/config --enable CONFIG_VIRTIO_CONSOLE
-        scripts/config --enable CONFIG_SERIAL_8250
-        scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
+        # ==========================================
+        # 模块四：透明代理与策略路由 (精准分流与高级网关)
+        # ==========================================
+        # 1. TPROXY 与套接字匹配 (处理 UDP 代理、复杂局域网网关分流)
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TPROXY # 透明代理核心模块
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_SOCKET  # 匹配已建立的 Socket
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MAC     # 根据 MAC 地址匹配流量
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPRANGE # 根据 IP 段匹配流量
 
-        # --- 网络优化 ---
-        scripts/config --enable CONFIG_TCP_CONG_BBR
-        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
-        scripts/config --enable CONFIG_NET_SCH_FQ
-        scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"
+        # 2. 策略路由 (多线接入、指定应用走特定 IP/接口)
+        scripts/config --enable CONFIG_IP_ADVANCED_ROUTER         # 开启高级路由特性
+        scripts/config --enable CONFIG_IP_MULTIPLE_TABLES         # IPv4 多路由表 (ip rule 依赖)
+        scripts/config --enable CONFIG_IPV6_MULTIPLE_TABLES       # IPv6 多路由表
+        scripts/config --enable CONFIG_IPV6_SUBTREES              # IPv6 子树路由 (高级 IPv6 路由分配)
 
-        # --- 精简与关闭安全签名 (带注释版) ---
-        # 禁用模块签名验证，避免日后加载第三方模块（如 WireGuard 等）报 Key 错误
-        scripts/config --disable MODULE_SIG
-        # 禁用各类调试信息，极大缩减内核体积，加快编译速度
+        # ==========================================
+        # 模块五：容器引擎全环境 (Docker / Podman 无缝运行)
+        # ==========================================
+        # 1. 命名空间与资源隔离 (Cgroups 限制内存/CPU)
+        scripts/config --enable CONFIG_NAMESPACES                 # 基础命名空间隔离
+        scripts/config --enable CONFIG_USER_NS                    # 用户命名空间隔离
+        scripts/config --enable CONFIG_CGROUPS                    # Cgroups 核心
+        scripts/config --enable CONFIG_MEMCG                      # 内存控制组 (docker run -m)
+        scripts/config --enable CONFIG_MEMCG_SWAP                 # Swap 限制支持
+        scripts/config --enable CONFIG_BLK_CGROUP                 # 磁盘 I/O 限制
+        scripts/config --enable CONFIG_CGROUP_SCHED               # CPU 调度限制
+        scripts/config --enable CONFIG_CGROUP_PIDS                # 进程数限制
+        scripts/config --enable CONFIG_CGROUP_DEVICE              # 设备访问限制
+        scripts/config --enable CONFIG_CGROUP_CPUACCT             # CPU 资源记账
+        scripts/config --enable CONFIG_CPUSETS                    # 绑定指定 CPU 核心
+
+        # 2. 存储与网络底层
+        scripts/config --enable CONFIG_OVERLAY_FS                 # OverlayFS (Docker 默认且最高效的文件系统)
+        scripts/config --enable CONFIG_BRIDGE                     # 基础网桥 (docker0 依赖)
+        scripts/config --enable CONFIG_BRIDGE_NETFILTER           # 网桥防火墙过滤
+        scripts/config --enable CONFIG_VETH                       # 虚拟以太网对 (连接容器内部与宿主机网桥)
+
+        # 3. 完整的 NAT 转发与端口映射 (处理容器暴露的 WEB_LISTENING_PORT 及 IPv6 映射)
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_CONNTRACK
+        scripts/config --enable CONFIG_NETFILTER_XT_MARK
+        scripts/config --enable CONFIG_IP_NF_IPTABLES             # IPv4 防火墙核心
+        scripts/config --enable CONFIG_IP_NF_FILTER
+        scripts/config --enable CONFIG_IP_NF_NAT                  # IPv4 NAT 转发核心
+        scripts/config --enable CONFIG_IP_NF_TARGET_MASQUERADE    # IPv4 源地址伪装 (容器上网必备)
+        scripts/config --enable CONFIG_NF_NAT_IPV6                # IPv6 NAT 转发核心
+        scripts/config --enable CONFIG_IP6_NF_IPTABLES            # IPv6 防火墙核心
+        scripts/config --enable CONFIG_IP6_NF_FILTER
+        scripts/config --enable CONFIG_IP6_NF_MANGLE              # IPv6 数据包修改
+        scripts/config --enable CONFIG_IP6_NF_TARGET_MASQUERADE   # IPv6 源地址伪装
+
+        # ==========================================
+        # 模块六：高性能 Web 底层特性 (Nginx / LiteSpeed / WordPress)
+        # ==========================================
+        scripts/config --enable CONFIG_BPF                     # eBPF 核心 (降低 HTTP/3 UDP 网络处理开销)
+        scripts/config --enable CONFIG_BPF_SYSCALL             # eBPF 系统调用
+        scripts/config --enable CONFIG_CGROUP_BPF              # eBPF 与 Cgroup 结合
+        scripts/config --enable CONFIG_XDP_SOCKETS             # AF_XDP (旁路网络高性能收发包)
+        scripts/config --enable CONFIG_INOTIFY_USER            # 文件系统变动通知 (Web 服务实时重载配置)
+        scripts/config --enable CONFIG_FANOTIFY                # 增强型文件系统变动通知
+
+        # ==========================================
+        # 模块七：内核瘦身、屏蔽无用物理硬件与安全验证
+        # ==========================================
+        # 1. 禁用无用外设 (大幅减少编译时间和内存占用)
+        scripts/config --disable CONFIG_SOUND                  # 禁用声音总线
+        scripts/config --disable CONFIG_SND                    # 禁用声卡驱动
+        scripts/config --disable CONFIG_WLAN                   # 禁用无线局域网 (Wi-Fi)
+        scripts/config --disable CONFIG_BT                     # 禁用蓝牙
+        scripts/config --disable CONFIG_MEDIA_SUPPORT          # 禁用音视频流媒体设备
+        scripts/config --disable CONFIG_DRM                    # 禁用重量级物理显卡框架 (Direct Rendering Manager)
+
+        # 2. 禁用庞大的调试信息
         scripts/config --disable DEBUG_INFO
         scripts/config --disable DEBUG_INFO_BTF
         scripts/config --disable DEBUG_INFO_DWARF4
         scripts/config --disable DEBUG_INFO_DWARF5
         scripts/config --disable DEBUG_INFO_NONE
-        # 清空信任密钥证书，防止因为找不到 Debian 官方签名私钥导致编译直接中断报错
+
+        # 3. 绕过模块签名与信任密钥 (避免因缺少 Debian 官方私钥导致编译报错)
+        scripts/config --disable MODULE_SIG
         scripts/config --disable SYSTEM_TRUSTED_KEYS
         scripts/config --disable SYSTEM_REVOCATION_KEYS
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
         sed -ri '/CONFIG_SYSTEM_REVOCATION_KEYS/s/=.+/=""/g' .config
-
-        # --- 深度精简无用物理设备 (带注释版) ---
-        # 云服务器没有实体声卡，关闭声音总线和驱动
-        scripts/config --disable CONFIG_SOUND
-        scripts/config --disable CONFIG_SND
-        # 云服务器不需要连物理 WiFi 和蓝牙
-        scripts/config --disable CONFIG_WLAN
-        scripts/config --disable CONFIG_BT
-        # 云服务器不接摄像头、电视卡等流媒体设备
-        scripts/config --disable CONFIG_MEDIA_SUPPORT
-        # 云服务器不需要物理显卡/GPU 驱动（DRM框架），VNC 基础显示即可
-        scripts/config --disable CONFIG_DRM
 
         # 重新生成最终配置
         make olddefconfig
