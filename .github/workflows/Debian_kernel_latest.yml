@@ -36,9 +36,10 @@ jobs:
         df -h
 
     - name: Install Dependencies
+      # 【修正点】增加了 debhelper, libdw-dev 和 rsync 以满足 bindeb-pkg 的打包依赖
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl
+        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl debhelper libdw-dev rsync
 
     - name: Get Kernel Version & Source
       run: |
@@ -58,7 +59,6 @@ jobs:
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
         make x86_64_defconfig
-        # 【修正点】应用 KVM 虚拟化专属配置片段
         make kvm_guest.config
 
         # 开启 TCP 优化 (BBR + FQ)
