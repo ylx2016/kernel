@@ -26,3 +26,6 @@ ARM config from：
 https://kojihub.stream.centos.org/koji/packageinfo?packageID=800
 
 https://archlinuxarm.org/packages/aarch64/linux-aarch64/files/config
+
+
+Debian_Kernel_Cloud表示走cloud内核路线，有什么BUG或者建议可以反馈
