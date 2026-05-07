@@ -230,13 +230,13 @@ jobs:
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
         echo -e "$(nproc) thread compile"
-        # 必须加上 sudo，否则打包 headers 时内部生成的 fixdep 脚本会报权限不足
-        sudo time make -j$(nproc) bindeb-pkg
+        # 移除 sudo！全程以 runner 用户运行，fakeroot 会自动处理打包时的提权问题
+        time make -j$(nproc) bindeb-pkg
         
         mkdir -p $GITHUB_WORKSPACE/upload
         cd ..
-        sudo mv *.deb $GITHUB_WORKSPACE/upload/
-        sudo chmod -R 777 $GITHUB_WORKSPACE/upload/
+        # 去掉 sudo 后，生成的 .deb 文件归属于 runner，直接 mv 即可
+        mv *.deb $GITHUB_WORKSPACE/upload/
         echo "compile_status=success" >> $GITHUB_ENV
 
     - name: Upload Artifacts
