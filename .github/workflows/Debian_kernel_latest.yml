@@ -54,59 +54,77 @@ jobs:
         
         echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
 
-    - name: Inject BBRv3 and BBRplus Modules
+    - name: Inject BBRv3 and BBRplus Modules (7.0 Adapted)
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
         echo "========================================="
-        echo "开始注入第三方 TCP 拥塞控制模块"
+        echo "开始动态注入第三方 TCP 拥塞控制模块 (7.0适配版)"
         echo "========================================="
         
-        # 1. 下载 BBRplus (适配 6.x/7.x 内核的稳定版)
-        echo "-> Downloading BBRplus (UJX6N version)..."
-        wget -qO net/ipv4/tcp_bbrplus.c "https://raw.githubusercontent.com/UJX6N/bbrplus-6.x_stable/main/tcp_bbrplus.c"
+        # 1. 下载 BBRplus 包含 C 源码的聚合 Patch 文件
+        echo "-> Downloading BBRplus Patch..."
+        wget -qO bbrplus.patch "https://raw.githubusercontent.com/ylx2016/kernel/master/convert_official_linux-6.9.x_src_to_bbrplus.patch"
         
-        # 2. 下载 BBRv3 (Google 官方 v3 分支源码)
-        echo "-> Downloading BBRv3 (Google Official)..."
+        # 2. 剥离法：使用 awk 精准从 patch 中提取出 tcp_bbrplus.c 的完整源码
+        echo "-> Extracting tcp_bbrplus.c from patch..."
+        awk '
+        /^diff -ruaN a\/net\/ipv4\/tcp_bbrplus\.c/ {flag=1; next}
+        /^diff -ruaN / {if(flag) flag=0}
+        flag && /^\+/ && !/^\+\+\+ b\// {print substr($0, 2)}
+        ' bbrplus.patch > net/ipv4/tcp_bbrplus.c
+
+        # ========================================================
+        # 3. 核心 API 适配：对 7.0 内核底层进行外科手术级修改 (替代 patch)
+        # ========================================================
+        echo "-> Adapting kernel core structures for BBRplus..."
+        
+        # 3.1 扩容 icsk_ca_priv 结构体 (BBRplus 的变量比原版多，需要 112 字节)
+        sed -i -E 's/icsk_ca_priv\[([0-9]+) \/ sizeof\(u64\)\]/icsk_ca_priv[112 \/ sizeof(u64)]/' include/net/inet_connection_sock.h
+        sed -i -E 's/#define ICSK_CA_PRIV_SIZE\s+.*/#define ICSK_CA_PRIV_SIZE      (14 * sizeof(u64))/' include/net/inet_connection_sock.h
+        
+        # 3.2 解除 tcp_tso_autosize 函数的 static 限制，并将其导出给模块使用
+        sed -i 's/static u32 tcp_tso_autosize/u32 tcp_tso_autosize/' net/ipv4/tcp_output.c
+        echo -e "\nEXPORT_SYMBOL(tcp_tso_autosize);" >> net/ipv4/tcp_output.c
+        
+        # 3.3 在 tcp.h 中声明该函数
+        sed -i '/void tcp_skb_entail/i u32 tcp_tso_autosize(const struct sock *sk, unsigned int mss_now, int min_tso_segs);' include/net/tcp.h
+        
+        # 3.4 为 tcp_congestion_ops 结构体增加 tso_segs_goal 函数指针
+        sed -i '/u32 (\*min_tso_segs)(struct sock \*sk);/a\ \n\t/* suggest number of segments for each skb to transmit (optional) */\n\tu32 (*tso_segs_goal)(struct sock *sk);' include/net/tcp.h
+
+        # ========================================================
+        
+        # 4. 下载并魔改 BBRv3 (保留原版 v1 的前提下)
+        echo "-> Downloading and Magic Renaming BBRv3..."
         wget -qO net/ipv4/tcp_bbrv3.c "https://raw.githubusercontent.com/google/bbr/v3/net/ipv4/tcp_bbr.c"
-        
-        # 3. 核心魔改：将 BBRv3 源码中的标识彻底重命名，防止与原生 bbr 产生符号冲突 (Symbol conflict)
-        echo "-> Magic Renaming BBRv3 to prevent conflict with v1..."
-        
-        # 替换独立的单词 bbr 为 bbrv3 (影响注册的模块名: .name = "bbrv3")
         sed -i 's/\bbbr\b/bbrv3/g' net/ipv4/tcp_bbrv3.c
-        # 替换大写的独立单词 BBR 为 BBRV3
         sed -i 's/\bBBR\b/BBRV3/g' net/ipv4/tcp_bbrv3.c
-        # 替换变量前缀 bbr_ 为 bbrv3_ (如 bbr_init 变为 bbrv3_init)
         sed -i 's/bbr_/bbrv3_/g' net/ipv4/tcp_bbrv3.c
-        # 替换宏定义前缀 BBR_ 为 BBRV3_
         sed -i 's/BBR_/BBRV3_/g' net/ipv4/tcp_bbrv3.c
-        # 处理可能残余的 tcp_bbr 字符
         sed -i 's/tcp_bbr/tcp_bbrv3/g' net/ipv4/tcp_bbrv3.c
         
-        # 4. 注册 Kconfig (创建独立的编译开关)
-        # 为确保兼容性，直接追加到 net/ipv4/Kconfig 的尾部
+        # 5. 注册独立的编译开关 (Kconfig)
         echo "-> Patching net/ipv4/Kconfig..."
         cat >> net/ipv4/Kconfig << 'EOF'
 
         config TCP_CONG_BBRV3
             tristate "BBRv3 TCP congestion control"
             default m
-            help
-              BBRv3 from Google. Renamed to coexist with native BBRv1.
 
         config TCP_CONG_BBRPLUS
             tristate "BBRplus TCP congestion control"
             default m
-            help
-              BBRplus optimized for high latency/loss links.
         EOF
         
-        # 5. 注册 Makefile (将其加入编译队列)
+        # 6. 加入编译队列 (Makefile)
         echo "-> Patching net/ipv4/Makefile..."
         echo 'obj-$(CONFIG_TCP_CONG_BBRV3) += tcp_bbrv3.o' >> net/ipv4/Makefile
         echo 'obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' >> net/ipv4/Makefile
         
-        echo "第三方 TCP 模块注入完成！"
+        # 7. 清理临时文件
+        rm -f bbrplus.patch
+        
+        echo "第三方 TCP 模块注入与 7.0 适配全部完成！"
         
 
     - name: Configure Kernel (Cloud & Network Optimized)
