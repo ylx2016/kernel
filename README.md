@@ -9,11 +9,9 @@ https://bwg.ylx.me/
 
 ## GitHub Action 全自动编译内核
 
-改自 P3TERX 的脚本。
+编译的内核仅限 Cloud VMS，实体机不建议安装使用。
 
-BBRplus Action 编译的内核仅限 Cloud VMS，实体机不建议安装使用。
-
-BBRplus from https://github.com/UJX6N
+https://www.kernel.org/
 
 XanMod(停止维护) from https://xanmod.org/  
 
