@@ -54,6 +54,61 @@ jobs:
         
         echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
 
+    - name: Inject BBRv3 and BBRplus Modules
+      working-directory: ${{ env.KERNEL_DIR }}
+      run: |
+        echo "========================================="
+        echo "开始注入第三方 TCP 拥塞控制模块"
+        echo "========================================="
+        
+        # 1. 下载 BBRplus (适配 6.x/7.x 内核的稳定版)
+        echo "-> Downloading BBRplus (UJX6N version)..."
+        wget -qO net/ipv4/tcp_bbrplus.c "https://raw.githubusercontent.com/UJX6N/bbrplus-6.x_stable/main/tcp_bbrplus.c"
+        
+        # 2. 下载 BBRv3 (Google 官方 v3 分支源码)
+        echo "-> Downloading BBRv3 (Google Official)..."
+        wget -qO net/ipv4/tcp_bbrv3.c "https://raw.githubusercontent.com/google/bbr/v3/net/ipv4/tcp_bbr.c"
+        
+        # 3. 核心魔改：将 BBRv3 源码中的标识彻底重命名，防止与原生 bbr 产生符号冲突 (Symbol conflict)
+        echo "-> Magic Renaming BBRv3 to prevent conflict with v1..."
+        
+        # 替换独立的单词 bbr 为 bbrv3 (影响注册的模块名: .name = "bbrv3")
+        sed -i 's/\bbbr\b/bbrv3/g' net/ipv4/tcp_bbrv3.c
+        # 替换大写的独立单词 BBR 为 BBRV3
+        sed -i 's/\bBBR\b/BBRV3/g' net/ipv4/tcp_bbrv3.c
+        # 替换变量前缀 bbr_ 为 bbrv3_ (如 bbr_init 变为 bbrv3_init)
+        sed -i 's/bbr_/bbrv3_/g' net/ipv4/tcp_bbrv3.c
+        # 替换宏定义前缀 BBR_ 为 BBRV3_
+        sed -i 's/BBR_/BBRV3_/g' net/ipv4/tcp_bbrv3.c
+        # 处理可能残余的 tcp_bbr 字符
+        sed -i 's/tcp_bbr/tcp_bbrv3/g' net/ipv4/tcp_bbrv3.c
+        
+        # 4. 注册 Kconfig (创建独立的编译开关)
+        # 为确保兼容性，直接追加到 net/ipv4/Kconfig 的尾部
+        echo "-> Patching net/ipv4/Kconfig..."
+        cat >> net/ipv4/Kconfig << 'EOF'
+
+        config TCP_CONG_BBRV3
+            tristate "BBRv3 TCP congestion control"
+            default m
+            help
+              BBRv3 from Google. Renamed to coexist with native BBRv1.
+
+        config TCP_CONG_BBRPLUS
+            tristate "BBRplus TCP congestion control"
+            default m
+            help
+              BBRplus optimized for high latency/loss links.
+        EOF
+        
+        # 5. 注册 Makefile (将其加入编译队列)
+        echo "-> Patching net/ipv4/Makefile..."
+        echo 'obj-$(CONFIG_TCP_CONG_BBRV3) += tcp_bbrv3.o' >> net/ipv4/Makefile
+        echo 'obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' >> net/ipv4/Makefile
+        
+        echo "第三方 TCP 模块注入完成！"
+        
+
     - name: Configure Kernel (Cloud & Network Optimized)
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
@@ -116,13 +171,24 @@ jobs:
         scripts/config --enable CONFIG_R8169                   # Realtek (螃蟹) 千兆/2.5G 家用网卡
 
         # ==========================================
-        # 模块三：核心网络与隧道优化 (TCP 发包与 VPN 虚拟网卡)
+        # 模块三：核心网络与队列优化 (TCP 拥塞控制与 Qdisc)
         # ==========================================
-        # 1. 拥塞控制与队列 (Web 资源分发、CDN 回源极速优化)
-        scripts/config --enable CONFIG_TCP_CONG_BBR            # 开启 BBR 拥塞控制算法
-        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr" # 设为系统默认算法
-        scripts/config --enable CONFIG_NET_SCH_FQ              # 开启 FQ (Fair Queue) 流量调度
-        scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"   # 设为默认队列 (BBR 最佳搭档)
+        
+        # 1. 配置 BBR 家族
+        scripts/config --enable CONFIG_TCP_CONG_BBR            # 原生 BBR v1 (=y)
+        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr" # 默认拥塞控制设为 v1
+        scripts/config --module CONFIG_TCP_CONG_BBRV3          # 注入的 BBR v3 (=m)
+        scripts/config --module CONFIG_TCP_CONG_BBRPLUS        # 注入的 BBRplus (=m)
+
+        # 2. 基础与默认队列 (FQ 依然是 BBR 极限测速的最佳底层搭档)
+        scripts/config --enable CONFIG_NET_SCH_FQ              # 开启 FQ (Fair Queue)
+        scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"   # 【强烈建议】全局默认依然保持为 fq
+
+        # 3. 开启高级防缓存膨胀队列 (软路由、流量整形、QoS 刚需)
+        scripts/config --enable CONFIG_NET_SCH_FQ_CODEL        # 开启 FQ-CoDel (最经典的全能队列)
+        scripts/config --enable CONFIG_NET_SCH_FQ_PIE          # 开启 FQ-PIE (电缆调制解调器级平滑队列)
+        scripts/config --enable CONFIG_NET_SCH_CAKE            # 开启 CAKE (目前最强智能 QoS 与流量管理队列)
+        scripts/config --enable CONFIG_NET_SCH_PIE             # 开启基础 PIE 算法 (fq_pie 的依赖)
 
         # 2. 虚拟网络接口 (sing-box, Xray, Tailscale 等代理刚需)
         scripts/config --enable CONFIG_TUN                     # TUN/TAP 设备 (提供三层/二层虚拟隧道)
