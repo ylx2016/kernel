@@ -54,69 +54,6 @@ jobs:
         
         echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
 
-    - name: BBRplus Modules
-      working-directory: ${{ env.KERNEL_DIR }}
-      run: |
-        echo "========================================="
-        echo "开始动态注入第三方 TCP 拥塞控制模块 BBRplus (7.0适配版)"
-        echo "========================================="
-        
-        # 1. 下载 BBRplus 包含 C 源码的聚合 Patch 文件
-        echo "-> Downloading BBRplus Patch..."
-        wget -qO bbrplus.patch "https://raw.githubusercontent.com/ylx2016/kernel/master/convert_official_linux-6.9.x_src_to_bbrplus.patch"
-        
-        # 2. 剥离法：使用 awk 精准从 patch 中提取出 tcp_bbrplus.c 的完整源码
-        echo "-> Extracting tcp_bbrplus.c from patch..."
-        awk '
-        /^diff -ruaN a\/net\/ipv4\/tcp_bbrplus\.c/ {flag=1; next}
-        /^diff -ruaN / {if(flag) flag=0}
-        flag && /^\+/ && !/^\+\+\+ b\// {print substr($0, 2)}
-        ' bbrplus.patch > net/ipv4/tcp_bbrplus.c
-
-        # ========================================================
-        # 3. 核心 API 适配：对 7.0 内核底层进行外科手术级修改 (替代 patch)
-        # ========================================================
-        echo "-> Adapting kernel core structures for BBRplus..."
-        
-        # 3.1 扩容 icsk_ca_priv 结构体 (BBRplus 的变量比原版多，需要 112 字节)
-        sed -i -E 's/icsk_ca_priv\[([0-9]+) \/ sizeof\(u64\)\]/icsk_ca_priv[112 \/ sizeof(u64)]/' include/net/inet_connection_sock.h
-        sed -i -E 's/#define ICSK_CA_PRIV_SIZE\s+.*/#define ICSK_CA_PRIV_SIZE      (14 * sizeof(u64))/' include/net/inet_connection_sock.h
-        
-        # 3.2 解除 tcp_tso_autosize 函数的 static 限制，并将其导出给模块使用
-        sed -i 's/static u32 tcp_tso_autosize/u32 tcp_tso_autosize/' net/ipv4/tcp_output.c
-        echo -e "\nEXPORT_SYMBOL(tcp_tso_autosize);" >> net/ipv4/tcp_output.c
-        
-        # 3.3 在 tcp.h 中声明该函数
-        sed -i '/void tcp_skb_entail/i u32 tcp_tso_autosize(const struct sock *sk, unsigned int mss_now, int min_tso_segs);' include/net/tcp.h
-        
-        # 3.4 为 tcp_congestion_ops 结构体增加 tso_segs_goal 函数指针
-        sed -i '/u32 (\*min_tso_segs)(struct sock \*sk);/a\ \n\t/* suggest number of segments for each skb to transmit (optional) */\n\tu32 (*tso_segs_goal)(struct sock *sk);' include/net/tcp.h
-
-        # 3.5 [新增] 修复 7.0 内核 cong_control 函数签名要求 4 个参数的 API 变更
-        sed -i 's/__bpf_kfunc static void bbr_main(struct sock \*sk, const struct rate_sample \*rs)/__bpf_kfunc static void bbr_main(struct sock \*sk, u32 ack, int flag, const struct rate_sample \*rs)/g' net/ipv4/tcp_bbrplus.c
-
-        # ========================================================
-
-        # ========================================================
-        
-        # 4. 注册独立的编译开关 (Kconfig)
-        echo "-> Patching net/ipv4/Kconfig..."
-        cat >> net/ipv4/Kconfig << 'EOF'
-
-        config TCP_CONG_BBRPLUS
-            tristate "BBRplus TCP congestion control"
-            default m
-        EOF
-        
-        # 5. 加入编译队列 (Makefile)
-        echo "-> Patching net/ipv4/Makefile..."
-        echo 'obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' >> net/ipv4/Makefile
-        
-        # 6. 清理临时文件
-        rm -f bbrplus.patch
-        
-        echo "BBRplus 模块注入与 7.0 适配全部完成！"
-
     - name: Configure Kernel (Cloud & Network Optimized)
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
@@ -179,13 +116,11 @@ jobs:
         scripts/config --enable CONFIG_R8169                   # Realtek (螃蟹) 千兆/2.5G 家用网卡
 
         # ==========================================
-        # 模块三：核心网络与队列优化 (TCP 拥塞控制与 Qdisc)
+        # 模块三：核心网络与隧道优化 (TCP 发包与 VPN 虚拟网卡)
         # ==========================================
-        
         # 1. 配置 BBR 家族
         scripts/config --enable CONFIG_TCP_CONG_BBR            # 原生 BBR (=y)
         scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
-        scripts/config --module CONFIG_TCP_CONG_BBRPLUS        # 注入的 BBRplus (=m)
 
         # 2. 基础与默认队列 (FQ 依然是 BBR 极限测速的最佳底层搭档)
         scripts/config --enable CONFIG_NET_SCH_FQ              # 开启 FQ (Fair Queue)
@@ -197,7 +132,7 @@ jobs:
         scripts/config --enable CONFIG_NET_SCH_CAKE            # 开启 CAKE (目前最强智能 QoS 与流量管理队列)
         scripts/config --enable CONFIG_NET_SCH_PIE             # 开启基础 PIE 算法 (fq_pie 的依赖)
 
-        # 2. 虚拟网络接口 (sing-box, Xray, Tailscale 等代理刚需)
+        # 4. 虚拟网络接口 (sing-box, Xray, Tailscale 等代理刚需)
         scripts/config --enable CONFIG_TUN                     # TUN/TAP 设备 (提供三层/二层虚拟隧道)
         scripts/config --enable CONFIG_DUMMY                   # Dummy 虚拟网卡 (常用于高级路由伪装)
         scripts/config --enable CONFIG_WIREGUARD               # 内核级 WireGuard 协议 (提升异地组网性能)
