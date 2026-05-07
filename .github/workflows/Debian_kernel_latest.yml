@@ -54,11 +54,11 @@ jobs:
         
         echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
 
-    - name: Inject BBRv3 and BBRplus Modules (7.0 Adapted)
+    - name: BBRplus Modules
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
         echo "========================================="
-        echo "开始动态注入第三方 TCP 拥塞控制模块 (7.0适配版)"
+        echo "开始动态注入第三方 TCP 拥塞控制模块 BBRplus (7.0适配版)"
         echo "========================================="
         
         # 1. 下载 BBRplus 包含 C 源码的聚合 Patch 文件
@@ -94,38 +94,23 @@ jobs:
 
         # ========================================================
         
-        # 4. 下载并魔改 BBRv3 (保留原版 v1 的前提下)
-        echo "-> Downloading and Magic Renaming BBRv3..."
-        wget -qO net/ipv4/tcp_bbrv3.c "https://raw.githubusercontent.com/google/bbr/v3/net/ipv4/tcp_bbr.c"
-        sed -i 's/\bbbr\b/bbrv3/g' net/ipv4/tcp_bbrv3.c
-        sed -i 's/\bBBR\b/BBRV3/g' net/ipv4/tcp_bbrv3.c
-        sed -i 's/bbr_/bbrv3_/g' net/ipv4/tcp_bbrv3.c
-        sed -i 's/BBR_/BBRV3_/g' net/ipv4/tcp_bbrv3.c
-        sed -i 's/tcp_bbr/tcp_bbrv3/g' net/ipv4/tcp_bbrv3.c
-        
-        # 5. 注册独立的编译开关 (Kconfig)
+        # 4. 注册独立的编译开关 (Kconfig)
         echo "-> Patching net/ipv4/Kconfig..."
         cat >> net/ipv4/Kconfig << 'EOF'
-
-        config TCP_CONG_BBRV3
-            tristate "BBRv3 TCP congestion control"
-            default m
 
         config TCP_CONG_BBRPLUS
             tristate "BBRplus TCP congestion control"
             default m
         EOF
         
-        # 6. 加入编译队列 (Makefile)
+        # 5. 加入编译队列 (Makefile)
         echo "-> Patching net/ipv4/Makefile..."
-        echo 'obj-$(CONFIG_TCP_CONG_BBRV3) += tcp_bbrv3.o' >> net/ipv4/Makefile
         echo 'obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' >> net/ipv4/Makefile
         
-        # 7. 清理临时文件
+        # 6. 清理临时文件
         rm -f bbrplus.patch
         
-        echo "第三方 TCP 模块注入与 7.0 适配全部完成！"
-        
+        echo "BBRplus 模块注入与 7.0 适配全部完成！"
 
     - name: Configure Kernel (Cloud & Network Optimized)
       working-directory: ${{ env.KERNEL_DIR }}
@@ -193,9 +178,8 @@ jobs:
         # ==========================================
         
         # 1. 配置 BBR 家族
-        scripts/config --enable CONFIG_TCP_CONG_BBR            # 原生 BBR v1 (=y)
-        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr" # 默认拥塞控制设为 v1
-        scripts/config --module CONFIG_TCP_CONG_BBRV3          # 注入的 BBR v3 (=m)
+        scripts/config --enable CONFIG_TCP_CONG_BBR            # 原生 BBR (=y)
+        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
         scripts/config --module CONFIG_TCP_CONG_BBRPLUS        # 注入的 BBRplus (=m)
 
         # 2. 基础与默认队列 (FQ 依然是 BBR 极限测速的最佳底层搭档)
