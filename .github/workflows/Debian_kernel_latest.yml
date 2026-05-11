@@ -230,13 +230,20 @@ jobs:
       working-directory: ${{ env.KERNEL_DIR }}
       run: |
         echo -e "$(nproc) thread compile"
-        # 移除 sudo！全程以 runner 用户运行，fakeroot 会自动处理打包时的提权问题
-        time make -j$(nproc) bindeb-pkg
+        
+        # 1. 恢复 sudo 编译！利用真实的 root 权限彻底绕过 fakeroot 的高并发权限丢失 Bug
+        sudo time make -j$(nproc) bindeb-pkg
         
         mkdir -p $GITHUB_WORKSPACE/upload
         cd ..
-        # 去掉 sudo 后，生成的 .deb 文件归属于 runner，直接 mv 即可
-        mv *.deb $GITHUB_WORKSPACE/upload/
+        
+        # 2. 因为是 root 编译的，所以生成的 .deb 文件权限是 root，使用 sudo 移动
+        sudo mv *.deb $GITHUB_WORKSPACE/upload/
+        
+        # 3. 将 upload 目录下的文件所有权强制改回 runner 用户（$USER 变量会自动解析为 runner）
+        # 这样接下来的 actions/upload-artifact 和 WeTransfer 步骤就能正常读取了
+        sudo chown -R $USER:$USER $GITHUB_WORKSPACE/upload/
+        
         echo "compile_status=success" >> $GITHUB_ENV
 
     - name: Upload Artifacts
