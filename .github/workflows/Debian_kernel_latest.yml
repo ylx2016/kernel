@@ -9,6 +9,8 @@ name: Debian Cloud Kernel Latest
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 20 * * 1,4'
 
 env:
   UPLOAD_DIR: true
@@ -187,6 +189,38 @@ jobs:
         scripts/config --enable CONFIG_IP6_NF_FILTER
         scripts/config --enable CONFIG_IP6_NF_MANGLE              # IPv6 数据包修改
         scripts/config --enable CONFIG_IP6_NF_TARGET_MASQUERADE   # IPv6 源地址伪装
+
+        # ==========================================
+        # 模块 5.5：现代防火墙 nftables 核心支持 (Debian 11/12 刚需)
+        # ==========================================
+        # 1. nftables 核心框架与地址族支持
+        scripts/config --enable CONFIG_NF_TABLES          # nftables 核心
+        scripts/config --enable CONFIG_NF_TABLES_INET     # IPv4/IPv6 混合表支持
+        scripts/config --enable CONFIG_NF_TABLES_NETDEV   # 硬件网卡级过滤 (极高性能防 CC/DDoS)
+        scripts/config --enable CONFIG_NF_TABLES_BRIDGE   # 桥接层过滤 (配合 Docker 使用)
+
+        # 2. nftables 基础动作与表达式 (计数、日志、限速、NAT)
+        scripts/config --enable CONFIG_NFT_CT             # 连接追踪 (Conntrack)
+        scripts/config --enable CONFIG_NFT_COUNTER        # 流量计数器
+        scripts/config --enable CONFIG_NFT_LOG            # 日志记录
+        scripts/config --enable CONFIG_NFT_LIMIT          # 流量限速
+        scripts/config --enable CONFIG_NFT_MASQ           # 端口伪装 (NAT 必备)
+        scripts/config --enable CONFIG_NFT_REDIR          # 端口重定向 (透明代理必备)
+        scripts/config --enable CONFIG_NFT_NAT            # NAT 动作
+        scripts/config --enable CONFIG_NFT_REJECT         # 拒绝连接动作
+        scripts/config --enable CONFIG_NFT_COMPAT         # 兼容老版本 iptables 规则 (极其重要，防止 Docker 规则冲突)
+
+        # 3. IPv4 专属链与路由表
+        scripts/config --enable CONFIG_NF_TABLES_IPV4
+        scripts/config --enable CONFIG_NFT_REJECT_IPV4
+        scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV4
+        scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV4
+
+        # 4. IPv6 专属链与路由表
+        scripts/config --enable CONFIG_NF_TABLES_IPV6
+        scripts/config --enable CONFIG_NFT_REJECT_IPV6
+        scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV6
+        scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV6
 
         # ==========================================
         # 模块六：高性能 Web 底层特性 (Nginx / LiteSpeed / WordPress)
