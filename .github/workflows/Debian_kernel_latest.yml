@@ -243,6 +243,61 @@ jobs:
         scripts/config --disable CONFIG_MEDIA_SUPPORT          # 禁用音视频流媒体设备
         scripts/config --disable CONFIG_DRM                    # 禁用重量级物理显卡框架 (Direct Rendering Manager)
 
+        # ==========================================
+        # 模块八：高阶日常软件、运维工具与外围生态支持
+        # ==========================================
+        # 1. FUSE (用户态文件系统) - Rclone / SSHFS / MergerFS 挂载刚需
+        scripts/config --enable CONFIG_FUSE_FS
+        scripts/config --enable CONFIG_CUSE
+
+        # 2. IPSet 集成 - 防火墙海量规则与防爆破 (fail2ban 必备)
+        scripts/config --enable CONFIG_IP_SET
+        scripts/config --enable CONFIG_IP_SET_MAX
+        scripts/config --enable CONFIG_IP_SET_BITMAP_IP
+        scripts/config --enable CONFIG_IP_SET_BITMAP_IPMAC
+        scripts/config --enable CONFIG_IP_SET_BITMAP_PORT
+        scripts/config --enable CONFIG_IP_SET_HASH_IP
+        scripts/config --enable CONFIG_IP_SET_HASH_NET
+        scripts/config --enable CONFIG_NETFILTER_XT_SET
+
+        # 3. 精准进程与 I/O 监控 - htop / iotop / sysstat 依赖
+        scripts/config --enable CONFIG_TASKSTATS
+        scripts/config --enable CONFIG_TASK_DELAY_ACCT
+        scripts/config --enable CONFIG_TASK_XACCT
+        scripts/config --enable CONFIG_TASK_IO_ACCOUNTING
+
+        # 4. IPC 与系统调用安全 - 现代 Systemd 与沙盒应用 (如无头 Chrome/Puppeteer) 依赖
+        scripts/config --enable CONFIG_POSIX_MQUEUE
+        scripts/config --enable CONFIG_SECCOMP
+        scripts/config --enable CONFIG_SECCOMP_FILTER
+
+        # 5. NAS 内网文件共享客户端
+        scripts/config --enable CONFIG_CIFS                # 挂载 Windows/Samba 共享文件夹
+        scripts/config --enable CONFIG_NFS_FS              # 挂载 NFS 共享
+
+        # 6. U盘与跨平台文件系统支持 (FAT32/exFAT/NTFS 及中文防乱码)
+        scripts/config --enable CONFIG_FAT_FS
+        scripts/config --enable CONFIG_VFAT_FS
+        scripts/config --enable CONFIG_EXFAT_FS
+        
+        # --- 新增：原生高性能 NTFS3 驱动 ---
+        scripts/config --enable CONFIG_NTFS3_FS             # 开启原生 NTFS 读写支持
+        scripts/config --enable CONFIG_NTFS3_LZX_XPRESS     # 支持读取 Windows 的 LZX 压缩文件
+        scripts/config --enable CONFIG_NTFS3_FS_POSIX_ACL   # 开启 NTFS 的 POSIX 权限支持
+        
+        scripts/config --enable CONFIG_NLS_CODEPAGE_437     # FAT 必须的基础代码页
+        scripts/config --enable CONFIG_NLS_ISO8859_1        # 基础西文字符集
+        scripts/config --enable CONFIG_NLS_UTF8             # UTF-8 支持 (防止挂载中文名文件乱码)
+        
+        # 7. (可选) K3s / 容器集群负载均衡底层依赖 (如果未来玩 Kubernetes)
+        scripts/config --enable CONFIG_IP_VS
+        scripts/config --enable CONFIG_IP_VS_PROTO_TCP
+        scripts/config --enable CONFIG_IP_VS_PROTO_UDP
+        scripts/config --enable CONFIG_IP_VS_RR
+        scripts/config --enable CONFIG_IP_VS_WRR
+        scripts/config --enable CONFIG_IP_VS_SH
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPVS
+
         # 2. 禁用庞大的调试信息
         scripts/config --disable DEBUG_INFO
         scripts/config --disable DEBUG_INFO_BTF
