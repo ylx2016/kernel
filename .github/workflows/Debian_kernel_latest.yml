@@ -356,17 +356,20 @@ jobs:
       run: |
         echo -e "$(nproc) thread compile"
         
-        # 1. 恢复 sudo 编译！利用真实的 root 权限彻底绕过 fakeroot 的高并发权限丢失 Bug
+        # 【核心杀手锏】：将整个源码目录的所有权移交给 root！
+        # 防止 dpkg-buildpackage 触发降权机制，彻底干掉 fakeroot 导致的假权限 Bug
+        sudo chown -R root:root .
+        
+        # 1. 此时是真 root 环境，火力全开编译并打包
         sudo time make -j$(nproc) bindeb-pkg
         
         mkdir -p $GITHUB_WORKSPACE/upload
         cd ..
         
-        # 2. 因为是 root 编译的，所以生成的 .deb 文件权限是 root，使用 sudo 移动
+        # 2. 生成的 deb 包此时也是 root 的，移动到外层目录
         sudo mv *.deb $GITHUB_WORKSPACE/upload/
         
-        # 3. 将 upload 目录下的文件所有权强制改回 runner 用户（$USER 变量会自动解析为 runner）
-        # 这样接下来的 actions/upload-artifact 和 WeTransfer 步骤就能正常读取了
+        # 3. 擦屁股：把打包好的文件还给 runner，保证后面的 Upload Actions 能正常读取上传
         sudo chown -R $USER:$USER $GITHUB_WORKSPACE/upload/
         
         echo "compile_status=success" >> $GITHUB_ENV
