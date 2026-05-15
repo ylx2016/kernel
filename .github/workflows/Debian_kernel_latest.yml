@@ -298,6 +298,42 @@ jobs:
         scripts/config --enable CONFIG_IP_VS_SH
         scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPVS
 
+        # ==========================================
+        # 模块九：Firewalld 刚需、高级 Netfilter 与 Mangle 表支持
+        # ==========================================
+        # 1. 补全 Nftables 高级功能 (Firewalld 启动与 rpfilter 刚需)
+        scripts/config --enable CONFIG_NFT_FIB             # FIB (路由转发表) 核心
+        scripts/config --enable CONFIG_NFT_FIB_INET        # inet 混合家族的 FIB (firewalld 报错的直接元凶)
+        scripts/config --enable CONFIG_NFT_FIB_IPV4        # IPv4 FIB
+        scripts/config --enable CONFIG_NFT_FIB_IPV6        # IPv6 FIB
+        scripts/config --enable CONFIG_NFT_OBJREF          # 状态对象引用 (firewalld 计数、配额强依赖)
+        scripts/config --enable CONFIG_NFT_QUOTA           # 流量配额控制
+        scripts/config --enable CONFIG_NFT_REJECT_INET     # inet 家族的连接拒绝动作
+        scripts/config --enable CONFIG_NFT_HASH            # 高级哈希匹配
+        scripts/config --enable CONFIG_NFT_SOCKET          # Socket 状态匹配
+        scripts/config --enable CONFIG_NFT_OSF             # 操作系统指纹识别 (高级防火墙防御)
+        scripts/config --enable CONFIG_NFT_TPROXY          # 透明代理原生动作
+        scripts/config --enable CONFIG_NFT_SYNPROXY        # SYN 代理 (极高性能防御 DDoS/SYN Flood)
+
+        # 2. 传统 iptables 的 Mangle 表与 Raw 表支持 (排查容灾与修改包头刚需)
+        scripts/config --enable CONFIG_IP_NF_MANGLE        # IPv4 Mangle 表 (修改 TTL、TOS、Mark 等)
+        scripts/config --enable CONFIG_IP6_NF_MANGLE       # IPv6 Mangle 表
+        scripts/config --enable CONFIG_IP_NF_RAW           # IPv4 Raw 表 (绕过连接追踪，防 CC 必备)
+        scripts/config --enable CONFIG_IP6_NF_RAW          # IPv6 Raw 表
+        
+        # 3. iptables 高级 Target/Match 扩展
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MARK   # 匹配特定的防火墙标记
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_MARK  # 给数据包打标记 (策略路由分流刚需)
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TCPMSS # 修改 TCP MSS (解决 PPPoE/VPN 环境下 MTU 导致的网页打不开)
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TOS   # 修改服务类型字段
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_HL    # 修改 IPv6 Hop Limit
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_PROXY # 传统透明代理目标
+
+        # 4. ARP 防火墙 (firewalld 处理底层局域网欺骗的依赖)
+        scripts/config --enable CONFIG_IP_NF_ARPTABLES     # ARP 表核心
+        scripts/config --enable CONFIG_IP_NF_ARPFILTER     # ARP 过滤
+        scripts/config --enable CONFIG_IP_NF_ARP_MANGLE    # ARP 修改
+
         # 2. 禁用庞大的调试信息
         scripts/config --disable DEBUG_INFO
         scripts/config --disable DEBUG_INFO_BTF
