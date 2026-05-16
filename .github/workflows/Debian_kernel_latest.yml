@@ -348,6 +348,23 @@ jobs:
         sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
         sed -ri '/CONFIG_SYSTEM_REVOCATION_KEYS/s/=.+/=""/g' .config
 
+        # ==========================================
+        # 模块十：全局压缩算法替换为 XZ (极致兼容性)
+        # ==========================================
+        # 1. 内核镜像压缩 (vmlinuz 换成 xz，兼容老旧 GRUB)
+        scripts/config --disable CONFIG_KERNEL_GZIP
+        scripts/config --disable CONFIG_KERNEL_ZSTD
+        scripts/config --disable CONFIG_KERNEL_BZIP2
+        scripts/config --disable CONFIG_KERNEL_LZMA
+        scripts/config --disable CONFIG_KERNEL_LZ4
+        scripts/config --disable CONFIG_KERNEL_LZO
+        scripts/config --enable CONFIG_KERNEL_XZ
+
+        # 2. 内核驱动模块压缩 (ko 换成 xz)
+        scripts/config --disable CONFIG_MODULE_COMPRESS_ZSTD
+        scripts/config --disable CONFIG_MODULE_COMPRESS_GZIP
+        scripts/config --enable CONFIG_MODULE_COMPRESS_XZ
+        
         # 重新生成最终配置
         make olddefconfig
 
@@ -360,9 +377,9 @@ jobs:
         # 此时所有的 C 代码和核心工具（如 fixdep）都会被安全、完整地生成
         sudo time make -j$(nproc)
         
-        # 2. 彻底消灭 Permission denied：用单线程 (-j1) 专门执行打包！
+        # 2. 彻底消灭 Permission denied：用单线程 (-j1) 专门执行打包！并强制使用 xz 压缩 deb 包！
         # 因为内核已经编译好了，这一步只会做拷贝和压缩，单线程也极快，且完美避开了读写冲突 Bug
-        sudo time make -j1 bindeb-pkg
+        sudo time make -j1 bindeb-pkg KDEB_COMPRESS=xz
         
         mkdir -p $GITHUB_WORKSPACE/upload
         cd ..
