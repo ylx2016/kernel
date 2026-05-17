@@ -364,6 +364,38 @@ jobs:
         scripts/config --disable CONFIG_MODULE_COMPRESS_ZSTD
         scripts/config --disable CONFIG_MODULE_COMPRESS_GZIP
         scripts/config --enable CONFIG_MODULE_COMPRESS_XZ
+
+        # ==========================================
+        # 模块十一：Debian 11/12 特有核心需求与云 VPS 补强 (从 CentOS 同步)
+        # ==========================================
+        
+        # 1. AppArmor 原生支持 (Debian 的核心安全模块，对标 CentOS 的 SELinux)
+        # 未开启会导致 Debian 下的 Docker 容器无法正常隔离，或者部分 snap/flatpak 应用崩溃
+        scripts/config --enable CONFIG_SECURITY_APPARMOR
+        scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM
+        scripts/config --enable CONFIG_DEFAULT_SECURITY_APPARMOR
+        
+        # 2. 云盘在线热扩容支持 (兼顾 ext4 和 xfs)
+        # VPS 升级硬盘后执行 resize2fs 刚需
+        scripts/config --enable CONFIG_BLK_DEV_LOOP
+        scripts/config --enable CONFIG_RESIZE_FS
+        scripts/config --enable CONFIG_XFS_ONLINE_REPAIR 
+        scripts/config --enable CONFIG_XFS_ONLINE_SCRUB
+
+        # 3. 云厂商监控与审计依赖 (阿里云盾、腾讯云镜等底层依赖)
+        scripts/config --enable CONFIG_AUDIT
+        scripts/config --enable CONFIG_AUDITSYSCALL
+        
+        # 4. 确保 Debian 的 LSM 安全链正常加载 (AppArmor 优先级)
+        # 这里的顺序极其重要，apparmor 必须在 bpf 之前加载
+        scripts/config --set-str CONFIG_LSM "lockdown,yama,loadpin,safesetid,integrity,apparmor,bpf"
+        
+        # 5. 完善 Docker/Podman 内存隔离 (防止 OOM 导致宿主机死机)
+        scripts/config --enable CONFIG_MEMCG_V1
+        
+        # 6. 特殊云厂商网卡补全 (独立服务器、Oracle Cloud、高防机房常见)
+        scripts/config --enable CONFIG_NET_VENDOR_MELLANOX
+        scripts/config --enable CONFIG_MLX4_CORE
         
         # 重新生成最终配置
         make olddefconfig
