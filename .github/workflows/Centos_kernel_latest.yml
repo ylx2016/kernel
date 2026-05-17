@@ -38,10 +38,9 @@ jobs:
         df -h
 
     - name: Install Dependencies
-      # 变动点：移除了 debhelper 等 Debian 专属工具，加入了 rpm 和 rpm-build
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl rpm rpm-build rsync fakeroot
+        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl rpm rsync fakeroot libdw-dev elfutils
 
     - name: Get Kernel Version & Source
       run: |
