@@ -2,135 +2,373 @@
 # This is free software, licensed under the MIT License.
 # See /LICENSE for more information.
 #
-# Description: Build Kernel using GitHub Actions
-# Change from P3TERX
+# Description: Build Cloud-Optimized Kernel for CentOS 9/10 using GitHub Actions
 #
 
-name: Centos Kernel Latest
+name: CentOS Cloud Kernel Latest
 
 on:
   workflow_dispatch:
-  #schedule:
-    #- cron: "38 21 * * 1,4"
-   # inputs:
-     # ssh:
-       # description: 'SSH connection to Actions'
-       # required: false
-       # default: 'false'
+  schedule:
+    - cron: '0 20 * * 1,4'
 
 env:
   UPLOAD_DIR: true
   UPLOAD_RELEASE: true
   UPLOAD_WETRANSFER: false
   TZ: Asia/Shanghai
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    runs-on:  ubuntu-latest
-    container: docker.io/qctt/kernelbuild:centos7_2
-    
+    runs-on: ubuntu-latest
+
     steps:
     - name: Checkout
-      uses: actions/checkout@main
-        
-    - name: Check for updates  
-      id: check
-      run: |
-        github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Centos_Kernel' | grep '_latest_bbr_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
-        github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag} | grep 'rpm' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | grep -oP "<strong>\K[0-9]+\.[0-9]+(\.[0-9]+)?")
-        echo "github_ver=" $github_ver
-        echo "kernel_ver=" $kernel_ver
-        #if [[ $github_ver == *"$kernel_ver"* ]]; then
-        #    echo "::set-output name=status::fail"
-        #else
-            echo "::set-output name=status::success"
-        #fi     
+      uses: actions/checkout@v4
 
-    - name: Get source code
-      id: code
-      if: steps.check.outputs.status == 'success'
-      working-directory: /workdir
+    - name: Free up disk space (Critical)
       run: |
-        df -hT $PWD
-        kernel_file=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline;getline;getline; print}' | head -n 1 | awk -F '["]' '{print $2}' | awk -F '["]' '{print $1}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | grep -oP "<strong>\K[0-9]+\.[0-9]+(\.[0-9]+)?")
-        wget -O kernel.tar.xz $kernel_file
-        tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
-        echo "::set-output name=status::success"
-        
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}         
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force
+        sudo apt-get clean
+        df -h
 
-    - name: Compile the kernel
-      id: compile
-      if: steps.code.outputs.status == 'success'
-      working-directory: /workdir
+    - name: Install Dependencies
+      # 变动点：移除了 debhelper 等 Debian 专属工具，加入了 rpm 和 rpm-build
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | grep -oP "<strong>\K[0-9]+\.[0-9]+(\.[0-9]+)?")
-        cd linux-$kernel_ver
-        ln -s /opt/rh/devtoolset-12/root/usr/bin/* /usr/local/bin/
-        wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/config_elrepo
-        yes '' | make ARCH=x86_64 olddefconfig
-        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
-        scripts/config --disable MODULE_SIG
+        sudo apt-get update
+        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl rpm rpm-build rsync fakeroot
+
+    - name: Get Kernel Version & Source
+      run: |
+        kernel_ver=$(curl -s https://www.kernel.org/ | grep -E -o 'https://cdn.kernel.org/pub/linux/kernel/v[0-9x.]+/linux-[0-9.]+\.tar\.xz' | head -n 1 | awk -F'/' '{print $NF}' | sed 's/linux-//' | sed 's/\.tar\.xz//')
+        kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${kernel_ver%%.*}.x/linux-${kernel_ver}.tar.xz"
+        
+        echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
+        echo "FILE_DATE=Kernel_CentOS_Cloud_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+        
+        echo "Downloading Linux Kernel $kernel_ver..."
+        wget -O kernel.tar.xz "$kernel_url"
+        tar -xf kernel.tar.xz
+        
+        echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
+
+    - name: Configure Kernel (Cloud & Network Optimized)
+      working-directory: ${{ env.KERNEL_DIR }}
+      run: |
+        make x86_64_defconfig
+        make kvm_guest.config
+
+        # ==========================================
+        # 模块一至模块十：(与原 Debian 配置完全保持一致)
+        # 包括云主机驱动、物理扩展、BBR、透明代理、Docker支持、nftables、Web优化等
+        # ==========================================
+        scripts/config --enable CONFIG_EXT4_FS
+        scripts/config --enable CONFIG_XFS_FS
+        scripts/config --enable CONFIG_BTRFS_FS
+
+        scripts/config --enable CONFIG_VIRTIO_BLK
+        scripts/config --enable CONFIG_SCSI_VIRTIO
+        scripts/config --enable CONFIG_VIRTIO_PCI
+        scripts/config --enable CONFIG_BLK_DEV_NVME
+        scripts/config --enable CONFIG_HYPERV_STORAGE
+        scripts/config --enable CONFIG_VMWARE_PVSCSI
+        scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND
+
+        scripts/config --enable CONFIG_VIRTIO_NET
+        scripts/config --enable CONFIG_VMXNET3
+        scripts/config --enable CONFIG_HYPERV_NET
+        scripts/config --enable CONFIG_XEN_NETDEV_FRONTEND
+        scripts/config --enable CONFIG_VIRTIO_CONSOLE
+        scripts/config --enable CONFIG_SERIAL_8250
+        scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
+
+        scripts/config --enable CONFIG_ATA
+        scripts/config --enable CONFIG_SATA_AHCI
+        scripts/config --enable CONFIG_MEGARAID_SAS
+        scripts/config --enable CONFIG_SCSI_MPT3SAS
+        scripts/config --enable CONFIG_SCSI_HPSA
+
+        scripts/config --enable CONFIG_USB
+        scripts/config --enable CONFIG_USB_XHCI_HCD
+        scripts/config --enable CONFIG_USB_EHCI_HCD
+        scripts/config --enable CONFIG_USB_STORAGE
+        scripts/config --enable CONFIG_USB_UAS
+        scripts/config --enable CONFIG_INPUT_KEYBOARD
+        scripts/config --enable CONFIG_KEYBOARD_ATKBD
+        scripts/config --enable CONFIG_USB_HID
+        scripts/config --enable CONFIG_SYSFB_SIMPLEFB
+        scripts/config --enable CONFIG_FB_EFI
+
+        scripts/config --enable CONFIG_E1000E
+        scripts/config --enable CONFIG_IGB
+        scripts/config --enable CONFIG_IGC
+        scripts/config --enable CONFIG_IXGBE
+        scripts/config --enable CONFIG_R8169
+
+        scripts/config --enable CONFIG_TCP_CONG_BBR
+        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
+        scripts/config --enable CONFIG_NET_SCH_FQ
+        scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"
+        scripts/config --enable CONFIG_NET_SCH_FQ_CODEL
+        scripts/config --enable CONFIG_NET_SCH_FQ_PIE
+        scripts/config --enable CONFIG_NET_SCH_CAKE
+        scripts/config --enable CONFIG_NET_SCH_PIE
+
+        scripts/config --enable CONFIG_TUN
+        scripts/config --enable CONFIG_DUMMY
+        scripts/config --enable CONFIG_WIREGUARD
+
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TPROXY
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_SOCKET
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MAC
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPRANGE
+
+        scripts/config --enable CONFIG_IP_ADVANCED_ROUTER
+        scripts/config --enable CONFIG_IP_MULTIPLE_TABLES
+        scripts/config --enable CONFIG_IPV6_MULTIPLE_TABLES
+        scripts/config --enable CONFIG_IPV6_SUBTREES
+
+        scripts/config --enable CONFIG_NAMESPACES
+        scripts/config --enable CONFIG_USER_NS
+        scripts/config --enable CONFIG_CGROUPS
+        scripts/config --enable CONFIG_MEMCG
+        scripts/config --enable CONFIG_MEMCG_SWAP
+        scripts/config --enable CONFIG_BLK_CGROUP
+        scripts/config --enable CONFIG_CGROUP_SCHED
+        scripts/config --enable CONFIG_CGROUP_PIDS
+        scripts/config --enable CONFIG_CGROUP_DEVICE
+        scripts/config --enable CONFIG_CGROUP_CPUACCT
+        scripts/config --enable CONFIG_CPUSETS
+        scripts/config --enable CONFIG_OVERLAY_FS
+        scripts/config --enable CONFIG_BRIDGE
+        scripts/config --enable CONFIG_BRIDGE_NETFILTER
+        scripts/config --enable CONFIG_VETH
+
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_CONNTRACK
+        scripts/config --enable CONFIG_NETFILTER_XT_MARK
+        scripts/config --enable CONFIG_IP_NF_IPTABLES
+        scripts/config --enable CONFIG_IP_NF_FILTER
+        scripts/config --enable CONFIG_IP_NF_NAT
+        scripts/config --enable CONFIG_IP_NF_TARGET_MASQUERADE
+        scripts/config --enable CONFIG_NF_NAT_IPV6
+        scripts/config --enable CONFIG_IP6_NF_IPTABLES
+        scripts/config --enable CONFIG_IP6_NF_FILTER
+        scripts/config --enable CONFIG_IP6_NF_MANGLE
+        scripts/config --enable CONFIG_IP6_NF_TARGET_MASQUERADE
+
+        scripts/config --enable CONFIG_NF_TABLES
+        scripts/config --enable CONFIG_NF_TABLES_INET
+        scripts/config --enable CONFIG_NF_TABLES_NETDEV
+        scripts/config --enable CONFIG_NF_TABLES_BRIDGE
+        scripts/config --enable CONFIG_NFT_CT
+        scripts/config --enable CONFIG_NFT_COUNTER
+        scripts/config --enable CONFIG_NFT_LOG
+        scripts/config --enable CONFIG_NFT_LIMIT
+        scripts/config --enable CONFIG_NFT_MASQ
+        scripts/config --enable CONFIG_NFT_REDIR
+        scripts/config --enable CONFIG_NFT_NAT
+        scripts/config --enable CONFIG_NFT_REJECT
+        scripts/config --enable CONFIG_NFT_COMPAT
+        scripts/config --enable CONFIG_NF_TABLES_IPV4
+        scripts/config --enable CONFIG_NFT_REJECT_IPV4
+        scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV4
+        scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV4
+        scripts/config --enable CONFIG_NF_TABLES_IPV6
+        scripts/config --enable CONFIG_NFT_REJECT_IPV6
+        scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV6
+        scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV6
+
+        scripts/config --enable CONFIG_BPF
+        scripts/config --enable CONFIG_BPF_SYSCALL
+        scripts/config --enable CONFIG_CGROUP_BPF
+        scripts/config --enable CONFIG_XDP_SOCKETS
+        scripts/config --enable CONFIG_INOTIFY_USER
+        scripts/config --enable CONFIG_FANOTIFY
+
+        scripts/config --disable CONFIG_SOUND
+        scripts/config --disable CONFIG_SND
+        scripts/config --disable CONFIG_WLAN
+        scripts/config --disable CONFIG_BT
+        scripts/config --disable CONFIG_MEDIA_SUPPORT
+        scripts/config --disable CONFIG_DRM
+
+        scripts/config --enable CONFIG_FUSE_FS
+        scripts/config --enable CONFIG_CUSE
+        scripts/config --enable CONFIG_IP_SET
+        scripts/config --enable CONFIG_IP_SET_MAX
+        scripts/config --enable CONFIG_IP_SET_BITMAP_IP
+        scripts/config --enable CONFIG_IP_SET_BITMAP_IPMAC
+        scripts/config --enable CONFIG_IP_SET_BITMAP_PORT
+        scripts/config --enable CONFIG_IP_SET_HASH_IP
+        scripts/config --enable CONFIG_IP_SET_HASH_NET
+        scripts/config --enable CONFIG_NETFILTER_XT_SET
+        scripts/config --enable CONFIG_TASKSTATS
+        scripts/config --enable CONFIG_TASK_DELAY_ACCT
+        scripts/config --enable CONFIG_TASK_XACCT
+        scripts/config --enable CONFIG_TASK_IO_ACCOUNTING
+        scripts/config --enable CONFIG_POSIX_MQUEUE
+        scripts/config --enable CONFIG_SECCOMP
+        scripts/config --enable CONFIG_SECCOMP_FILTER
+        scripts/config --enable CONFIG_CIFS
+        scripts/config --enable CONFIG_NFS_FS
+
+        scripts/config --enable CONFIG_FAT_FS
+        scripts/config --enable CONFIG_VFAT_FS
+        scripts/config --enable CONFIG_EXFAT_FS
+        scripts/config --enable CONFIG_NTFS3_FS
+        scripts/config --enable CONFIG_NTFS3_LZX_XPRESS
+        scripts/config --enable CONFIG_NTFS3_FS_POSIX_ACL
+        scripts/config --enable CONFIG_NLS_CODEPAGE_437
+        scripts/config --enable CONFIG_NLS_ISO8859_1
+        scripts/config --enable CONFIG_NLS_UTF8
+
+        scripts/config --enable CONFIG_IP_VS
+        scripts/config --enable CONFIG_IP_VS_PROTO_TCP
+        scripts/config --enable CONFIG_IP_VS_PROTO_UDP
+        scripts/config --enable CONFIG_IP_VS_RR
+        scripts/config --enable CONFIG_IP_VS_WRR
+        scripts/config --enable CONFIG_IP_VS_SH
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPVS
+
+        scripts/config --enable CONFIG_NFT_FIB
+        scripts/config --enable CONFIG_NFT_FIB_INET
+        scripts/config --enable CONFIG_NFT_FIB_IPV4
+        scripts/config --enable CONFIG_NFT_FIB_IPV6
+        scripts/config --enable CONFIG_NFT_OBJREF
+        scripts/config --enable CONFIG_NFT_QUOTA
+        scripts/config --enable CONFIG_NFT_REJECT_INET
+        scripts/config --enable CONFIG_NFT_HASH
+        scripts/config --enable CONFIG_NFT_SOCKET
+        scripts/config --enable CONFIG_NFT_OSF
+        scripts/config --enable CONFIG_NFT_TPROXY
+        scripts/config --enable CONFIG_NFT_SYNPROXY
+        scripts/config --enable CONFIG_IP_NF_MANGLE
+        scripts/config --enable CONFIG_IP6_NF_MANGLE
+        scripts/config --enable CONFIG_IP_NF_RAW
+        scripts/config --enable CONFIG_IP6_NF_RAW
+        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MARK
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_MARK
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TCPMSS
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TOS
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_HL
+        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_PROXY
+        scripts/config --enable CONFIG_IP_NF_ARPTABLES
+        scripts/config --enable CONFIG_IP_NF_ARPFILTER
+        scripts/config --enable CONFIG_IP_NF_ARP_MANGLE
+
         scripts/config --disable DEBUG_INFO
         scripts/config --disable DEBUG_INFO_BTF
         scripts/config --disable DEBUG_INFO_DWARF4
         scripts/config --disable DEBUG_INFO_DWARF5
         scripts/config --disable DEBUG_INFO_NONE
-        echo -e "$(nproc) thread compile"
-        sudo time make -j$(nproc) rpm-pkg
-        mv /root/rpmbuild/RPMS/x86_64/* /workdir/upload
-        echo "::set-output name=status::success"
-        echo "FILE_DATE=Kernel_Centos_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-        
-    - name: Check space usage
-      if: (!cancelled()) && steps.compile.outputs.status == 'success'
-      run: df -hT
 
-    - name: Upload
-      uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_DIR == 'true'
+        scripts/config --disable MODULE_SIG
+        scripts/config --disable SYSTEM_TRUSTED_KEYS
+        scripts/config --disable SYSTEM_REVOCATION_KEYS
+        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
+        sed -ri '/CONFIG_SYSTEM_REVOCATION_KEYS/s/=.+/=""/g' .config
+
+        scripts/config --disable CONFIG_KERNEL_GZIP
+        scripts/config --disable CONFIG_KERNEL_ZSTD
+        scripts/config --disable CONFIG_KERNEL_BZIP2
+        scripts/config --disable CONFIG_KERNEL_LZMA
+        scripts/config --disable CONFIG_KERNEL_LZ4
+        scripts/config --disable CONFIG_KERNEL_LZO
+        scripts/config --enable CONFIG_KERNEL_XZ
+
+        scripts/config --disable CONFIG_MODULE_COMPRESS_ZSTD
+        scripts/config --disable CONFIG_MODULE_COMPRESS_GZIP
+        scripts/config --enable CONFIG_MODULE_COMPRESS_XZ
+
+        # ==========================================
+        # 模块十一：CentOS 9/10 特有核心需求与云 VPS 补强
+        # ==========================================
+        # 1. SELinux 原生支持 (CentOS 核心依赖，未开启可能导致开机卡死或 Systemd 异常)
+        scripts/config --enable CONFIG_SECURITY_SELINUX
+        scripts/config --enable CONFIG_SECURITY_SELINUX_BOOTPARAM
+        scripts/config --enable CONFIG_DEFAULT_SECURITY_SELINUX
+        
+        # 2. XFS 文件系统强化 (CentOS 默认且强制的系统盘格式)
+        scripts/config --enable CONFIG_XFS_QUOTA
+        scripts/config --enable CONFIG_XFS_POSIX_ACL
+        scripts/config --enable CONFIG_XFS_ONLINE_REPAIR
+
+        # 3. 云盘在线热扩容支持
+        scripts/config --enable CONFIG_BLK_DEV_LOOP
+        scripts/config --enable CONFIG_RESIZE_FS
+        
+        # 4. 云厂商监控与监控 Agent 审计依赖
+        scripts/config --enable CONFIG_AUDIT
+        scripts/config --enable CONFIG_AUDITSYSCALL
+        
+        # 5. 确保 CentOS 9/10 的 LSM 安全链正常加载 (Systemd 与 Podman 必须)
+        scripts/config --set-str CONFIG_LSM "lockdown,yama,loadpin,safesetid,integrity,selinux,bpf"
+        scripts/config --enable CONFIG_MEMCG_V1
+        
+        # 重新生成最终配置
+        make olddefconfig
+
+    - name: Compile Kernel
+      working-directory: ${{ env.KERNEL_DIR }}
+      run: |
+        echo -e "$(nproc) thread compile"
+        
+        # 1. 先多线程编译内核与模块
+        sudo time make -j$(nproc)
+        
+        # 2. 单线程打包 RPM (将 bindeb-pkg 改为了 binrpm-pkg)
+        # CentOS 的打包命令不需要传 KDEB_COMPRESS=xz，由于前面已经配置了 CONFIG_KERNEL_XZ，RPM 会默认处理压缩
+        sudo time make -j1 binrpm-pkg
+        
+        mkdir -p $GITHUB_WORKSPACE/upload
+        
+        # 3. 提取生成的 .rpm 包 
+        # 内核的 rpm 打包系统默认会将文件放到源码目录下的 rpmbuild 隐藏层中，用 find 可以完美提取
+        sudo find . -type f -name "*.rpm" -exec mv {} $GITHUB_WORKSPACE/upload/ \;
+        
+        # 4. 修复权限
+        sudo chown -R $USER:$USER $GITHUB_WORKSPACE/upload/
+        
+        echo "compile_status=success" >> $GITHUB_ENV
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      if: ${{ env.compile_status == 'success' && env.UPLOAD_DIR == 'true' }}
       with:
         name: ${{ env.FILE_DATE }}
-        path: /workdir/upload
-        
+        path: ${{ github.workspace }}/upload/
+
     - name: Upload to WeTransfer
-      id: wetransfer
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      if: ${{ env.compile_status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled() }}
       run: |
         curl -fsSL git.io/file-transfer | sh
-        ./transfer wet -s -p 16 --no-progress /workdir/upload 2>&1 | tee wetransfer.log
-        echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-        echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"          
+        ./transfer wet -s -p 16 --no-progress ${{ github.workspace }}/upload 2>&1 | tee wetransfer.log
+        echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
 
     - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
+      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | awk '/longterm/{getline a;print a}' | head -n 1 | grep -oP "<strong>\K[0-9]+\.[0-9]+(\.[0-9]+)?")
-        echo "::set-output name=release_tag::Centos_Kernel_${kernel_ver}_latest_bbr_$(date +"%Y.%m.%d-%H%M")"
+        echo "release_tag=CentOS_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
         touch release.txt
-        echo "for centos 7" >> release.txt
-        echo "::set-output name=status::success"
 
-    - name: Upload kernel to release
-      uses: softprops/action-gh-release@v1
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+    - name: Upload Kernel to Release
+      uses: softprops/action-gh-release@v2
+      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
       with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
+        tag_name: ${{ env.release_tag }}
         body_path: release.txt
-        files: /workdir/upload/*
+        files: ${{ github.workspace }}/upload/*
 
-    #- name: Delete workflow runs
-    #  uses: GitRML/delete-workflow-runs@main
-    #  with:
-    #    retain_days: 1
-    #    keep_minimum_runs: 3
+    - name: Delete workflow runs
+      uses: GitRML/delete-workflow-runs@main
+      with:
+        token: ${{ secrets.TOKEN }}
+        repository: ${{ github.repository }}
+        retain_days: 1
+        keep_minimum_runs: 2
