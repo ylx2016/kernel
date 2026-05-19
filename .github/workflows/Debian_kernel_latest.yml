@@ -20,7 +20,39 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  check_update:
+    runs-on: ubuntu-latest
+    outputs:
+      build_needed: ${{ steps.check.outputs.build_needed }}
+      kernel_ver: ${{ steps.check.outputs.kernel_ver }}
+    steps:
+      - name: Check latest kernel version
+        id: check
+        run: |
+          # 获取官方最新内核版本号
+          kernel_ver=$(curl -s https://www.kernel.org/ | grep -E -o 'https://cdn.kernel.org/pub/linux/kernel/v[0-9x.]+/linux-[0-9.]+\.tar\.xz' | head -n 1 | awk -F'/' '{print $NF}' | sed 's/linux-//' | sed 's/\.tar\.xz//')
+          echo "Latest kernel version is: $kernel_ver"
+          echo "kernel_ver=$kernel_ver" >> $GITHUB_OUTPUT
+          
+          # 使用 GitHub CLI 检查当前仓库是否已有包含该版本号的 Release Tag
+          if env GH_TOKEN=${{ github.token }} gh release list -R ${{ github.repository }} | grep -q "Debian_Kernel_Cloud_${kernel_ver}_bbr"; then
+            echo "Kernel $kernel_ver has already been released."
+            # 如果是手动触发的运行，则允许强制重新编译
+            if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+              echo "Manual trigger detected. Forcing build."
+              echo "build_needed=true" >> $GITHUB_OUTPUT
+            else
+              echo "build_needed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Kernel $kernel_ver is new. Build needed."
+            echo "build_needed=true" >> $GITHUB_OUTPUT
+          fi
+
   build:
+    needs: check_update
+    # 只有当 check_update 判定需要编译时才执行此 Job
+    if: needs.check_update.outputs.build_needed == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -44,7 +76,8 @@ jobs:
 
     - name: Get Kernel Version & Source
       run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep -E -o 'https://cdn.kernel.org/pub/linux/kernel/v[0-9x.]+/linux-[0-9.]+\.tar\.xz' | head -n 1 | awk -F'/' '{print $NF}' | sed 's/linux-//' | sed 's/\.tar\.xz//')
+        # 直接使用前置任务检测到的版本号，避免重复查询
+        kernel_ver="${{ needs.check_update.outputs.kernel_ver }}"
         kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${kernel_ver%%.*}.x/linux-${kernel_ver}.tar.xz"
         
         echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
@@ -432,30 +465,4 @@ jobs:
         path: ${{ github.workspace }}/upload/
 
     - name: Upload to WeTransfer
-      if: ${{ env.compile_status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled() }}
-      run: |
-        curl -fsSL git.io/file-transfer | sh
-        ./transfer wet -s -p 16 --no-progress ${{ github.workspace }}/upload 2>&1 | tee wetransfer.log
-        echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
-
-    - name: Generate release tag
-      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
-      run: |
-        echo "release_tag=Debian_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
-        touch release.txt
-
-    - name: Upload Kernel to Release
-      uses: softprops/action-gh-release@v2
-      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
-      with:
-        tag_name: ${{ env.release_tag }}
-        body_path: release.txt
-        files: ${{ github.workspace }}/upload/*
-
-    - name: Delete workflow runs
-      uses: GitRML/delete-workflow-runs@main
-      with:
-        token: ${{ secrets.TOKEN }}
-        repository: ${{ github.repository }}
-        retain_days: 1
-        keep_minimum_runs: 2
+      if: ${{ env.compile_status == 
