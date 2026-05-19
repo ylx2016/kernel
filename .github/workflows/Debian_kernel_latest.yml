@@ -465,4 +465,30 @@ jobs:
         path: ${{ github.workspace }}/upload/
 
     - name: Upload to WeTransfer
-      if: ${{ env.compile_status == 
+      if: ${{ env.compile_status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled() }}
+      run: |
+        curl -fsSL git.io/file-transfer | sh
+        ./transfer wet -s -p 16 --no-progress ${{ github.workspace }}/upload 2>&1 | tee wetransfer.log
+        echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
+
+    - name: Generate release tag
+      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+      run: |
+        echo "release_tag=Debian_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
+        touch release.txt
+
+    - name: Upload Kernel to Release
+      uses: softprops/action-gh-release@v2
+      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+      with:
+        tag_name: ${{ env.release_tag }}
+        body_path: release.txt
+        files: ${{ github.workspace }}/upload/*
+
+    - name: Delete workflow runs
+      uses: GitRML/delete-workflow-runs@main
+      with:
+        token: ${{ secrets.TOKEN }}
+        repository: ${{ github.repository }}
+        retain_days: 1
+        keep_minimum_runs: 2
