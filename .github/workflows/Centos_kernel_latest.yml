@@ -12,6 +12,10 @@ env:
   TZ: Asia/Shanghai
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   check_update:
     runs-on: ubuntu-latest
@@ -22,11 +26,18 @@ jobs:
       - name: Check latest kernel version
         id: check
         run: |
-          # 获取官方最新内核版本号
-          kernel_ver=$(curl -s https://www.kernel.org/ | grep -E -o 'https://cdn.kernel.org/pub/linux/kernel/v[0-9x.]+/linux-[0-9.]+\.tar\.xz' | head -n 1 | awk -F'/' '{print $NF}' | sed 's/linux-//' | sed 's/\.tar\.xz//')
-          echo "Latest kernel version is: $kernel_ver"
+          # [优化]: 使用官方 JSON API 精准获取最新稳定版 (stable) 内核版本号
+          kernel_ver=$(curl -s https://www.kernel.org/releases.json | jq -r '.latest_stable.version')
+          
+          # 防御性检查：确保真的抓取到了版本号，防止 API 偶尔抽风返回空值导致后续流程报错
+          if [ -z "$kernel_ver" ] || [ "$kernel_ver" == "null" ]; then
+            echo "Error: Failed to fetch kernel version from kernel.org API."
+            exit 1
+          fi
+          
+          echo "Latest stable kernel version is: $kernel_ver"
           echo "kernel_ver=$kernel_ver" >> $GITHUB_OUTPUT
-         
+          
           # 使用 GitHub CLI 检查当前仓库是否已有包含该版本号的 Release Tag
           if env GH_TOKEN=${{ github.token }} gh release list -R ${{ github.repository }} | grep -q "CentOS_Kernel_Cloud_${kernel_ver}_bbr"; then
             echo "Kernel $kernel_ver has already been released."
@@ -344,7 +355,8 @@ jobs:
     - name: Upload to WeTransfer
       if: ${{ env.compile_status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled() }}
       run: |
-        curl -fsSL git.io/file-transfer | sh
+        # 替换为真实的源脚本地址
+        curl -fsSL https://raw.githubusercontent.com/Mikubill/transfer/master/install.sh | sh
         ./transfer wet -s -p 16 --no-progress ${{ github.workspace }}/upload 2>&1 | tee wetransfer.log
         echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
 
