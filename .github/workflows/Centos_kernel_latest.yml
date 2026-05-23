@@ -104,17 +104,33 @@ jobs:
         scripts/config --enable CONFIG_EXT4_FS
         scripts/config --enable CONFIG_XFS_FS
         scripts/config --enable CONFIG_BTRFS_FS
+        
+        # 2. 云主机磁盘控制器 (强制直接编入内核 =y，防 initramfs 报错)
         scripts/config --enable CONFIG_VIRTIO_BLK
         scripts/config --enable CONFIG_SCSI_VIRTIO
         scripts/config --enable CONFIG_VIRTIO_PCI
-        scripts/config --enable CONFIG_BLK_DEV_NVME
+        scripts/config --enable CONFIG_NVME_CORE          # AWS Nitro 核心
+        scripts/config --enable CONFIG_BLK_DEV_NVME       # AWS Nitro 磁盘驱动
         scripts/config --enable CONFIG_HYPERV_STORAGE
         scripts/config --enable CONFIG_VMWARE_PVSCSI
+        
+        # --- 新增：AWS Xen 架构完整存储与底层 ---
+        scripts/config --enable CONFIG_XEN
+        scripts/config --enable CONFIG_XEN_PVH
+        scripts/config --enable CONFIG_XEN_PVHVM
         scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND
+        
+        # 3. 云主机虚拟网卡与控制台
         scripts/config --enable CONFIG_VIRTIO_NET
         scripts/config --enable CONFIG_VMXNET3
         scripts/config --enable CONFIG_HYPERV_NET
         scripts/config --enable CONFIG_XEN_NETDEV_FRONTEND
+        
+        # --- 新增：AWS ENA 高级网卡驱动 (Lightsail/EC2 刚需) ---
+        scripts/config --enable CONFIG_ENA_ETHERNET
+        
+        # --- 新增：AWS Xen 串口控制台 (方便后台查看报错日志) ---
+        scripts/config --enable CONFIG_HVC_XEN
         scripts/config --enable CONFIG_VIRTIO_CONSOLE
         scripts/config --enable CONFIG_SERIAL_8250
         scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
@@ -375,9 +391,9 @@ jobs:
         files: ${{ github.workspace }}/upload/*
 
     - name: Delete workflow runs
-      uses: GitRML/delete-workflow-runs@main
+      uses: Mattraks/delete-workflow-runs@v2
       with:
-        token: ${{ secrets.TOKEN }}
+        token: ${{ github.token }}
         repository: ${{ github.repository }}
         retain_days: 1
         keep_minimum_runs: 2
