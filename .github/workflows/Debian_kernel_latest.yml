@@ -177,7 +177,7 @@ jobs:
         scripts/config --enable CONFIG_NET_SCH_PIE # 开启基础 PIE 算法 (fq_pie 的依赖)
         # 4. 虚拟网络接口 (sing-box, Xray, Tailscale 等代理刚需)
         scripts/config --enable CONFIG_TUN # TUN/TAP 设备 (提供三层/二层虚拟隧道)
-        scripts/config --enable CONFIG_DUMMY # Dummy 虚拟网卡 (常用于高级路由伪装)
+        scripts/config --module CONFIG_DUMMY # 修改为 --module，编译为外挂模块 (=m)
         scripts/config --enable CONFIG_WIREGUARD # 内核级 WireGuard 协议 (提升异地组网性能)
         # ==========================================
         # 模块四：透明代理与策略路由 (精准分流与高级网关)
@@ -411,25 +411,6 @@ jobs:
         # 6. 特殊云厂商网卡补全 (独立服务器、Oracle Cloud、高防机房常见)
         scripts/config --enable CONFIG_NET_VENDOR_MELLANOX
         scripts/config --enable CONFIG_MLX4_CORE
-
-        # ==========================================
-        # 补丁：AWS Cloud-init 致命依赖与底层虚拟化支持
-        # ==========================================
-        # 1. 光盘文件系统 (AWS cloud-init 靠虚拟光驱读取底层配置，缺失必死机)
-        scripts/config --enable CONFIG_ISO9660_FS
-        scripts/config --enable CONFIG_JOLIET
-        scripts/config --enable CONFIG_ZISOFS
-        
-        # 2. 硬件信息读取 (cloud-init 验证 AWS 环境刚需)
-        scripts/config --enable CONFIG_DMI
-        scripts/config --enable CONFIG_DMIID
-        scripts/config --enable CONFIG_DMI_SYSFS
-        
-        # 3. KVM/AWS Nitro 高级虚拟化旁路支持 (防止多核 CPU 启动时死锁/挂起)
-        scripts/config --enable CONFIG_PARAVIRT
-        scripts/config --enable CONFIG_PARAVIRT_SPINLOCKS
-        scripts/config --enable CONFIG_HYPERVISOR_GUEST
-        scripts/config --enable CONFIG_X86_X2APIC
        
         # 重新生成最终配置
         make olddefconfig
