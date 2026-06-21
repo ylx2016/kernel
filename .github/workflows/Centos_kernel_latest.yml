@@ -163,7 +163,7 @@ jobs:
         scripts/config --enable CONFIG_NET_SCH_CAKE
         scripts/config --enable CONFIG_NET_SCH_PIE
         scripts/config --enable CONFIG_TUN
-        scripts/config --enable CONFIG_DUMMY
+        scripts/config --module CONFIG_DUMMY # 修改为 --module，编译为外挂模块 (=m)
         scripts/config --enable CONFIG_WIREGUARD
         scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TPROXY
         scripts/config --enable CONFIG_NETFILTER_XT_MATCH_SOCKET
