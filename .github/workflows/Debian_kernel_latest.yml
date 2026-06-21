@@ -411,6 +411,25 @@ jobs:
         # 6. 特殊云厂商网卡补全 (独立服务器、Oracle Cloud、高防机房常见)
         scripts/config --enable CONFIG_NET_VENDOR_MELLANOX
         scripts/config --enable CONFIG_MLX4_CORE
+
+        # ==========================================
+        # 补丁：AWS Cloud-init 致命依赖与底层虚拟化支持
+        # ==========================================
+        # 1. 光盘文件系统 (AWS cloud-init 靠虚拟光驱读取底层配置，缺失必死机)
+        scripts/config --enable CONFIG_ISO9660_FS
+        scripts/config --enable CONFIG_JOLIET
+        scripts/config --enable CONFIG_ZISOFS
+        
+        # 2. 硬件信息读取 (cloud-init 验证 AWS 环境刚需)
+        scripts/config --enable CONFIG_DMI
+        scripts/config --enable CONFIG_DMIID
+        scripts/config --enable CONFIG_DMI_SYSFS
+        
+        # 3. KVM/AWS Nitro 高级虚拟化旁路支持 (防止多核 CPU 启动时死锁/挂起)
+        scripts/config --enable CONFIG_PARAVIRT
+        scripts/config --enable CONFIG_PARAVIRT_SPINLOCKS
+        scripts/config --enable CONFIG_HYPERVISOR_GUEST
+        scripts/config --enable CONFIG_X86_X2APIC
        
         # 重新生成最终配置
         make olddefconfig
