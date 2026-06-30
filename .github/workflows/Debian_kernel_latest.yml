@@ -298,6 +298,12 @@ jobs:
           scripts/config --enable CONFIG_IP_NF_ARPFILTER
           scripts/config --enable CONFIG_IP_NF_ARP_MANGLE
 
+          # 6补充
+          scripts/config --enable CONFIG_NETFILTER_ADVANCED
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_HL
+          scripts/config --enable CONFIG_IP6_NF_TARGET_HL
+          scripts/config --enable CONFIG_IP6_NF_MATCH_RT
+
           # ==========================================
           # 模块六：容器引擎与面板建站全环境 (Docker/Systemd/面板)
           # ==========================================
