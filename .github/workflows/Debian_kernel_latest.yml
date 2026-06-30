@@ -59,438 +59,462 @@ jobs:
     if: needs.check_update.outputs.build_needed == 'true'
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Free up disk space (Critical)
-      run: |
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/ghc
-        sudo rm -rf /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
-        sudo apt-get clean
-        df -h
+      - name: Free up disk space (Critical)
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          df -h
 
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl debhelper libdw-dev rsync fakeroot
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl debhelper libdw-dev rsync fakeroot
 
-    - name: Get Kernel Version & Source
-      run: |
-        # 直接使用前置任务检测到的版本号，避免重复查询
-        kernel_ver="${{ needs.check_update.outputs.kernel_ver }}"
-        kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${kernel_ver%%.*}.x/linux-${kernel_ver}.tar.xz"
-       
-        echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
-        echo "FILE_DATE=Kernel_Debian_Cloud_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
-       
-        echo "Downloading Linux Kernel $kernel_ver..."
-        wget -O kernel.tar.xz "$kernel_url"
-        tar -xf kernel.tar.xz
-       
-        echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
+      - name: Get Kernel Version & Source
+        run: |
+          # 直接使用前置任务检测到的版本号，避免重复查询
+          kernel_ver="${{ needs.check_update.outputs.kernel_ver }}"
+          kernel_url="https://cdn.kernel.org/pub/linux/kernel/v${kernel_ver%%.*}.x/linux-${kernel_ver}.tar.xz"
+         
+          echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
+          echo "FILE_DATE=Kernel_Debian_Cloud_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+         
+          echo "Downloading Linux Kernel $kernel_ver..."
+          wget -O kernel.tar.xz "$kernel_url"
+          tar -xf kernel.tar.xz
+         
+          echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
 
-    - name: Configure Kernel (Cloud & Network Optimized)
-      working-directory: ${{ env.KERNEL_DIR }}
-      run: |
-        make x86_64_defconfig
-        make kvm_guest.config
-        # ==========================================
-        # 模块一：云服务器底层驱动 (确保在各类 VPS/云主机上正常启动)
-        # ==========================================
-        # 1. 基础文件系统 (直接编入内核，防止找不到启动盘)
-        scripts/config --enable CONFIG_EXT4_FS
-        scripts/config --enable CONFIG_XFS_FS
-        scripts/config --enable CONFIG_BTRFS_FS
-        
-        # 2. 云主机磁盘控制器 (强制直接编入内核 =y，防 initramfs 报错)
-        scripts/config --enable CONFIG_VIRTIO_BLK
-        scripts/config --enable CONFIG_SCSI_VIRTIO
-        scripts/config --enable CONFIG_VIRTIO_PCI
-        scripts/config --enable CONFIG_NVME_CORE          # AWS Nitro 核心
-        scripts/config --enable CONFIG_BLK_DEV_NVME       # AWS Nitro 磁盘驱动
-        scripts/config --enable CONFIG_HYPERV_STORAGE
-        scripts/config --enable CONFIG_VMWARE_PVSCSI
-        
-        # --- 新增：AWS Xen 架构完整存储与底层 ---
-        scripts/config --enable CONFIG_XEN
-        scripts/config --enable CONFIG_XEN_PVH
-        scripts/config --enable CONFIG_XEN_PVHVM
-        scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND
-        
-        # 3. 云主机虚拟网卡与控制台
-        scripts/config --enable CONFIG_VIRTIO_NET
-        scripts/config --enable CONFIG_VMXNET3
-        scripts/config --enable CONFIG_HYPERV_NET
-        scripts/config --enable CONFIG_XEN_NETDEV_FRONTEND
-        
-        # --- 新增：AWS ENA 高级网卡驱动 (Lightsail/EC2 刚需) ---
-        scripts/config --enable CONFIG_ENA_ETHERNET
-        
-        # --- 新增：AWS Xen 串口控制台 (方便后台查看报错日志) ---
-        scripts/config --enable CONFIG_HVC_XEN
-        
-        scripts/config --enable CONFIG_VIRTIO_CONSOLE
-        scripts/config --enable CONFIG_SERIAL_8250
-        scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
-        # ==========================================
-        # 模块二：物理主机扩展 (兼顾软路由、NAS、独立服务器)
-        # ==========================================
-        # 1. 物理磁盘与阵列卡
-        scripts/config --enable CONFIG_ATA # 基础 ATA 设备
-        scripts/config --enable CONFIG_SATA_AHCI # 主板原生 SATA 硬盘接口
-        scripts/config --enable CONFIG_MEGARAID_SAS # LSI/Broadcom 硬件阵列卡 (机房独立服务器必备)
-        scripts/config --enable CONFIG_SCSI_MPT3SAS # LSI HBA 直通卡 (TrueNAS/ZFS 存储玩家标配)
-        scripts/config --enable CONFIG_SCSI_HPSA # HP 惠普服务器原生阵列卡
-        # 2. USB 与输入输出 (防止物理机接显示器黑屏、键盘失效)
-        scripts/config --enable CONFIG_USB # USB 核心总线
-        scripts/config --enable CONFIG_USB_XHCI_HCD # USB 3.0 控制器
-        scripts/config --enable CONFIG_USB_EHCI_HCD # USB 2.0 控制器
-        scripts/config --enable CONFIG_USB_STORAGE # U盘及移动硬盘支持
-        scripts/config --enable CONFIG_USB_UAS # USB 附加 SCSI 协议 (高速外接硬盘盒)
-        scripts/config --enable CONFIG_INPUT_KEYBOARD # 键盘输入支持
-        scripts/config --enable CONFIG_KEYBOARD_ATKBD # 标准 PS/2 键盘
-        scripts/config --enable CONFIG_USB_HID # USB 键鼠
-        scripts/config --enable CONFIG_SYSFB_SIMPLEFB # 基础系统帧缓冲 (亮机必备)
-        scripts/config --enable CONFIG_FB_EFI # UEFI 环境基础显示输出
-        # 3. 物理网卡 (软路由/家庭宽带节点)
-        scripts/config --enable CONFIG_E1000E # Intel 千兆网卡
-        scripts/config --enable CONFIG_IGB # Intel 千兆企业级网卡
-        scripts/config --enable CONFIG_IGC # Intel i225/i226 2.5G 网卡 (现代软路由核心标配)
-        scripts/config --enable CONFIG_IXGBE # Intel 10G 万兆光口网卡
-        scripts/config --enable CONFIG_R8169 # Realtek (螃蟹) 千兆/2.5G 家用网卡
+      - name: Configure Kernel (Debian/Ubuntu Cloud & Panel Optimized)
+        working-directory: ${{ env.KERNEL_DIR }}
+        run: |
+          make x86_64_defconfig
+          make kvm_guest.config
 
-        # ==========================================
-        # 补充：云主机 VNC 控制台与虚拟显卡防花屏支持
-        # ==========================================
-        # 1. 基础控制台文本输出
-        scripts/config --enable CONFIG_VGA_CONSOLE
-        scripts/config --enable CONFIG_DUMMY_CONSOLE
-        scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
-        scripts/config --enable CONFIG_FB
+          # ==========================================
+          # 模块一：云服务器底层驱动与系统熵池 (通配各类云主机)
+          # ==========================================
+          # 1. 基础文件系统与在线扩容支持 (兼顾云盘在线升级)
+          scripts/config --enable CONFIG_EXT4_FS
+          scripts/config --enable CONFIG_XFS_FS
+          scripts/config --enable CONFIG_BTRFS_FS
+          scripts/config --enable CONFIG_BLK_DEV_LOOP
+          scripts/config --enable CONFIG_RESIZE_FS
+          scripts/config --enable CONFIG_XFS_ONLINE_REPAIR
+          scripts/config --enable CONFIG_XFS_ONLINE_SCRUB
 
-        # 2. 开启 DRM 核心，但不编译物理显卡驱动
-        scripts/config --enable CONFIG_DRM
-        scripts/config --disable CONFIG_DRM_AMDGPU
-        scripts/config --disable CONFIG_DRM_NOUVEAU
-        scripts/config --disable CONFIG_DRM_I915
-        
-        # 3. KVM 环境常见虚拟显卡驱动 (Hostry 等 VPS 的 VNC 刚需)
-        scripts/config --enable CONFIG_DRM_BOCHS
-        scripts/config --enable CONFIG_DRM_QXL
-        scripts/config --enable CONFIG_DRM_VIRTIO_GPU
-        # ==========================================
-        # 模块三：核心网络与隧道优化 (TCP 发包与 VPN 虚拟网卡)
-        # ==========================================
-        # 1. 配置 BBR 家族
-        scripts/config --enable CONFIG_TCP_CONG_BBR # 原生 BBR (=y)
-        scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
-        # 2. 基础与默认队列 (FQ 依然是 BBR 极限测速的最佳底层搭档)
-        scripts/config --enable CONFIG_NET_SCH_FQ # 开启 FQ (Fair Queue)
-        scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq" # 【强烈建议】全局默认依然保持为 fq
-        # 3. 开启高级防缓存膨胀队列 (软路由、流量整形、QoS 刚需)
-        scripts/config --enable CONFIG_NET_SCH_FQ_CODEL # 开启 FQ-CoDel (最经典的全能队列)
-        scripts/config --enable CONFIG_NET_SCH_FQ_PIE # 开启 FQ-PIE (电缆调制解调器级平滑队列)
-        scripts/config --enable CONFIG_NET_SCH_CAKE # 开启 CAKE (目前最强智能 QoS 与流量管理队列)
-        scripts/config --enable CONFIG_NET_SCH_PIE # 开启基础 PIE 算法 (fq_pie 的依赖)
-        # 4. 虚拟网络接口 (sing-box, Xray, Tailscale 等代理刚需)
-        scripts/config --enable CONFIG_TUN # TUN/TAP 设备 (提供三层/二层虚拟隧道)
-        scripts/config --module CONFIG_DUMMY # 修改为 --module，编译为外挂模块 (=m)
-        scripts/config --enable CONFIG_WIREGUARD # 内核级 WireGuard 协议 (提升异地组网性能)
-        # ==========================================
-        # 模块四：透明代理与策略路由 (精准分流与高级网关)
-        # ==========================================
-        # 1. TPROXY 与套接字匹配 (处理 UDP 代理、复杂局域网网关分流)
-        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TPROXY # 透明代理核心模块
-        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_SOCKET # 匹配已建立的 Socket
-        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MAC # 根据 MAC 地址匹配流量
-        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPRANGE # 根据 IP 段匹配流量
-        # 2. 策略路由 (多线接入、指定应用走特定 IP/接口)
-        scripts/config --enable CONFIG_IP_ADVANCED_ROUTER # 开启高级路由特性
-        scripts/config --enable CONFIG_IP_MULTIPLE_TABLES # IPv4 多路由表 (ip rule 依赖)
-        scripts/config --enable CONFIG_IPV6_MULTIPLE_TABLES # IPv6 多路由表
-        scripts/config --enable CONFIG_IPV6_SUBTREES # IPv6 子树路由 (高级 IPv6 路由分配)
-        # ==========================================
-        # 模块五：容器引擎全环境 (Docker / Podman 无缝运行)
-        # ==========================================
-        # 1. 命名空间与资源隔离 (Cgroups 限制内存/CPU)
-        scripts/config --enable CONFIG_NAMESPACES # 基础命名空间隔离
-        scripts/config --enable CONFIG_USER_NS # 用户命名空间隔离
-        scripts/config --enable CONFIG_CGROUPS # Cgroups 核心
-        scripts/config --enable CONFIG_MEMCG # 内存控制组 (docker run -m)
-        scripts/config --enable CONFIG_MEMCG_SWAP # Swap 限制支持
-        scripts/config --enable CONFIG_BLK_CGROUP # 磁盘 I/O 限制
-        scripts/config --enable CONFIG_CGROUP_SCHED # CPU 调度限制
-        scripts/config --enable CONFIG_CGROUP_PIDS # 进程数限制
-        scripts/config --enable CONFIG_CGROUP_DEVICE # 设备访问限制
-        scripts/config --enable CONFIG_CGROUP_CPUACCT # CPU 资源记账
-        scripts/config --enable CONFIG_CPUSETS # 绑定指定 CPU 核心
-        # 2. 存储与网络底层
-        scripts/config --enable CONFIG_OVERLAY_FS # OverlayFS (Docker 默认且最高效的文件系统)
-        scripts/config --enable CONFIG_BRIDGE # 基础网桥 (docker0 依赖)
-        scripts/config --enable CONFIG_BRIDGE_NETFILTER # 网桥防火墙过滤
-        scripts/config --enable CONFIG_VETH # 虚拟以太网对 (连接容器内部与宿主机网桥)
-        # 3. 完整的 NAT 转发与端口映射 (处理容器暴露的 WEB_LISTENING_PORT 及 IPv6 映射)
-        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
-        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_CONNTRACK
-        scripts/config --enable CONFIG_NETFILTER_XT_MARK
-        scripts/config --enable CONFIG_IP_NF_IPTABLES # IPv4 防火墙核心
-        scripts/config --enable CONFIG_IP_NF_FILTER
-        scripts/config --enable CONFIG_IP_NF_NAT # IPv4 NAT 转发核心
-        scripts/config --enable CONFIG_IP_NF_TARGET_MASQUERADE # IPv4 源地址伪装 (容器上网必备)
-        scripts/config --enable CONFIG_NF_NAT_IPV6 # IPv6 NAT 转发核心
-        scripts/config --enable CONFIG_IP6_NF_IPTABLES # IPv6 防火墙核心
-        scripts/config --enable CONFIG_IP6_NF_FILTER
-        scripts/config --enable CONFIG_IP6_NF_MANGLE # IPv6 数据包修改
-        scripts/config --enable CONFIG_IP6_NF_TARGET_MASQUERADE # IPv6 源地址伪装
-        # ==========================================
-        # 模块 5.5：现代防火墙 nftables 核心支持 (Debian 11/12 刚需)
-        # ==========================================
-        # 1. nftables 核心框架与地址族支持
-        scripts/config --enable CONFIG_NF_TABLES # nftables 核心
-        scripts/config --enable CONFIG_NF_TABLES_INET # IPv4/IPv6 混合表支持
-        scripts/config --enable CONFIG_NF_TABLES_NETDEV # 硬件网卡级过滤 (极高性能防 CC/DDoS)
-        scripts/config --enable CONFIG_NF_TABLES_BRIDGE # 桥接层过滤 (配合 Docker 使用)
-        # 2. nftables 基础动作与表达式 (计数、日志、限速、NAT)
-        scripts/config --enable CONFIG_NFT_CT # 连接追踪 (Conntrack)
-        scripts/config --enable CONFIG_NFT_COUNTER # 流量计数器
-        scripts/config --enable CONFIG_NFT_LOG # 日志记录
-        scripts/config --enable CONFIG_NFT_LIMIT # 流量限速
-        scripts/config --enable CONFIG_NFT_MASQ # 端口伪装 (NAT 必备)
-        scripts/config --enable CONFIG_NFT_REDIR # 端口重定向 (透明代理必备)
-        scripts/config --enable CONFIG_NFT_NAT # NAT 动作
-        scripts/config --enable CONFIG_NFT_REJECT # 拒绝连接动作
-        scripts/config --enable CONFIG_NFT_COMPAT # 兼容老版本 iptables 规则 (极其重要，防止 Docker 规则冲突)
-        # 3. IPv4 专属链与路由表
-        scripts/config --enable CONFIG_NF_TABLES_IPV4
-        scripts/config --enable CONFIG_NFT_REJECT_IPV4
-        scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV4
-        scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV4
-        # 4. IPv6 专属链与路由表
-        scripts/config --enable CONFIG_NF_TABLES_IPV6
-        scripts/config --enable CONFIG_NFT_REJECT_IPV6
-        scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV6
-        scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV6
-        # ==========================================
-        # 模块六：高性能 Web 底层特性 (Nginx / LiteSpeed / WordPress)
-        # ==========================================
-        scripts/config --enable CONFIG_BPF # eBPF 核心 (降低 HTTP/3 UDP 网络处理开销)
-        scripts/config --enable CONFIG_BPF_SYSCALL # eBPF 系统调用
-        scripts/config --enable CONFIG_CGROUP_BPF # eBPF 与 Cgroup 结合
-        scripts/config --enable CONFIG_XDP_SOCKETS # AF_XDP (旁路网络高性能收发包)
-        scripts/config --enable CONFIG_INOTIFY_USER # 文件系统变动通知 (Web 服务实时重载配置)
-        scripts/config --enable CONFIG_FANOTIFY # 增强型文件系统变动通知
-        # ==========================================
-        # 模块七：内核瘦身、屏蔽无用物理硬件与安全验证
-        # ==========================================
-        # 1. 禁用无用外设 (大幅减少编译时间和内存占用)
-        scripts/config --disable CONFIG_SOUND # 禁用声音总线
-        scripts/config --disable CONFIG_SND # 禁用声卡驱动
-        scripts/config --disable CONFIG_WLAN # 禁用无线局域网 (Wi-Fi)
-        scripts/config --disable CONFIG_BT # 禁用蓝牙
-        scripts/config --disable CONFIG_MEDIA_SUPPORT # 禁用音视频流媒体设备
-        # ==========================================
-        # 模块八：高阶日常软件、运维工具与外围生态支持
-        # ==========================================
-        # 1. FUSE (用户态文件系统) - Rclone / SSHFS / MergerFS 挂载刚需
-        scripts/config --enable CONFIG_FUSE_FS
-        scripts/config --enable CONFIG_CUSE
-        # 2. IPSet 集成 - 防火墙海量规则与防爆破 (fail2ban 必备)
-        scripts/config --enable CONFIG_IP_SET
-        scripts/config --enable CONFIG_IP_SET_MAX
-        scripts/config --enable CONFIG_IP_SET_BITMAP_IP
-        scripts/config --enable CONFIG_IP_SET_BITMAP_IPMAC
-        scripts/config --enable CONFIG_IP_SET_BITMAP_PORT
-        scripts/config --enable CONFIG_IP_SET_HASH_IP
-        scripts/config --enable CONFIG_IP_SET_HASH_NET
-        scripts/config --enable CONFIG_NETFILTER_XT_SET
-        # 3. 精准进程与 I/O 监控 - htop / iotop / sysstat 依赖
-        scripts/config --enable CONFIG_TASKSTATS
-        scripts/config --enable CONFIG_TASK_DELAY_ACCT
-        scripts/config --enable CONFIG_TASK_XACCT
-        scripts/config --enable CONFIG_TASK_IO_ACCOUNTING
-        # 4. IPC 与系统调用安全 - 现代 Systemd 与沙盒应用 (如无头 Chrome/Puppeteer) 依赖
-        scripts/config --enable CONFIG_POSIX_MQUEUE
-        scripts/config --enable CONFIG_SECCOMP
-        scripts/config --enable CONFIG_SECCOMP_FILTER
-        # 5. NAS 内网文件共享客户端
-        scripts/config --enable CONFIG_CIFS # 挂载 Windows/Samba 共享文件夹
-        scripts/config --enable CONFIG_NFS_FS # 挂载 NFS 共享
-        # 6. U盘与跨平台文件系统支持 (FAT32/exFAT/NTFS 及中文防乱码)
-        scripts/config --enable CONFIG_FAT_FS
-        scripts/config --enable CONFIG_VFAT_FS
-        scripts/config --enable CONFIG_EXFAT_FS
-       
-        # --- 新增：原生高性能 NTFS3 驱动 ---
-        scripts/config --enable CONFIG_NTFS3_FS # 开启原生 NTFS 读写支持
-        scripts/config --enable CONFIG_NTFS3_LZX_XPRESS # 支持读取 Windows 的 LZX 压缩文件
-        scripts/config --enable CONFIG_NTFS3_FS_POSIX_ACL # 开启 NTFS 的 POSIX 权限支持
-       
-        scripts/config --enable CONFIG_NLS_CODEPAGE_437 # FAT 必须的基础代码页
-        scripts/config --enable CONFIG_NLS_ISO8859_1 # 基础西文字符集
-        scripts/config --enable CONFIG_NLS_UTF8 # UTF-8 支持 (防止挂载中文名文件乱码)
-       
-        # 7. (可选) K3s / 容器集群负载均衡底层依赖 (如果未来玩 Kubernetes)
-        scripts/config --enable CONFIG_IP_VS
-        scripts/config --enable CONFIG_IP_VS_PROTO_TCP
-        scripts/config --enable CONFIG_IP_VS_PROTO_UDP
-        scripts/config --enable CONFIG_IP_VS_RR
-        scripts/config --enable CONFIG_IP_VS_WRR
-        scripts/config --enable CONFIG_IP_VS_SH
-        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPVS
-        # ==========================================
-        # 模块九：Firewalld 刚需、高级 Netfilter 与 Mangle 表支持
-        # ==========================================
-        # 1. 补全 Nftables 高级功能 (Firewalld 启动与 rpfilter 刚需)
-        scripts/config --enable CONFIG_NFT_FIB # FIB (路由转发表) 核心
-        scripts/config --enable CONFIG_NFT_FIB_INET # inet 混合家族的 FIB (firewalld 报错的直接元凶)
-        scripts/config --enable CONFIG_NFT_FIB_IPV4 # IPv4 FIB
-        scripts/config --enable CONFIG_NFT_FIB_IPV6 # IPv6 FIB
-        scripts/config --enable CONFIG_NFT_OBJREF # 状态对象引用 (firewalld 计数、配额强依赖)
-        scripts/config --enable CONFIG_NFT_QUOTA # 流量配额控制
-        scripts/config --enable CONFIG_NFT_REJECT_INET # inet 家族的连接拒绝动作
-        scripts/config --enable CONFIG_NFT_HASH # 高级哈希匹配
-        scripts/config --enable CONFIG_NFT_SOCKET # Socket 状态匹配
-        scripts/config --enable CONFIG_NFT_OSF # 操作系统指纹识别 (高级防火墙防御)
-        scripts/config --enable CONFIG_NFT_TPROXY # 透明代理原生动作
-        scripts/config --enable CONFIG_NFT_SYNPROXY # SYN 代理 (极高性能防御 DDoS/SYN Flood)
-        # 2. 传统 iptables 的 Mangle 表与 Raw 表支持 (排查容灾与修改包头刚需)
-        scripts/config --enable CONFIG_IP_NF_MANGLE # IPv4 Mangle 表 (修改 TTL、TOS、Mark 等)
-        scripts/config --enable CONFIG_IP6_NF_MANGLE # IPv6 Mangle 表
-        scripts/config --enable CONFIG_IP_NF_RAW # IPv4 Raw 表 (绕过连接追踪，防 CC 必备)
-        scripts/config --enable CONFIG_IP6_NF_RAW # IPv6 Raw 表
-       
-        # 3. iptables 高级 Target/Match 扩展
-        scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MARK # 匹配特定的防火墙标记
-        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_MARK # 给数据包打标记 (策略路由分流刚需)
-        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TCPMSS # 修改 TCP MSS (解决 PPPoE/VPN 环境下 MTU 导致的网页打不开)
-        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TOS # 修改服务类型字段
-        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_HL # 修改 IPv6 Hop Limit
-        scripts/config --enable CONFIG_NETFILTER_XT_TARGET_PROXY # 传统透明代理目标
-        # 4. ARP 防火墙 (firewalld 处理底层局域网欺骗的依赖)
-        scripts/config --enable CONFIG_IP_NF_ARPTABLES # ARP 表核心
-        scripts/config --enable CONFIG_IP_NF_ARPFILTER # ARP 过滤
-        scripts/config --enable CONFIG_IP_NF_ARP_MANGLE # ARP 修改
-        # 2. 禁用庞大的调试信息
-        scripts/config --disable DEBUG_INFO
-        scripts/config --disable DEBUG_INFO_BTF
-        scripts/config --disable DEBUG_INFO_DWARF4
-        scripts/config --disable DEBUG_INFO_DWARF5
-        scripts/config --disable DEBUG_INFO_NONE
-        # 3. 绕过模块签名与信任密钥 (避免因缺少 Debian 官方私钥导致编译报错)
-        scripts/config --disable MODULE_SIG
-        scripts/config --disable SYSTEM_TRUSTED_KEYS
-        scripts/config --disable SYSTEM_REVOCATION_KEYS
-        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
-        sed -ri '/CONFIG_SYSTEM_REVOCATION_KEYS/s/=.+/=""/g' .config
-        # ==========================================
-        # 模块十：全局压缩算法替换为 XZ (极致兼容性)
-        # ==========================================
-        # 1. 内核镜像压缩 (vmlinuz 换成 xz，兼容老旧 GRUB)
-        scripts/config --disable CONFIG_KERNEL_GZIP
-        scripts/config --disable CONFIG_KERNEL_ZSTD
-        scripts/config --disable CONFIG_KERNEL_BZIP2
-        scripts/config --disable CONFIG_KERNEL_LZMA
-        scripts/config --disable CONFIG_KERNEL_LZ4
-        scripts/config --disable CONFIG_KERNEL_LZO
-        scripts/config --enable CONFIG_KERNEL_XZ
-        # 2. 内核驱动模块压缩 (ko 换成 xz)
-        scripts/config --disable CONFIG_MODULE_COMPRESS_ZSTD
-        scripts/config --disable CONFIG_MODULE_COMPRESS_GZIP
-        scripts/config --enable CONFIG_MODULE_COMPRESS_XZ
-        # ==========================================
-        # 模块十一：Debian 11/12 特有核心需求与云 VPS 补强 (从 CentOS 同步)
-        # ==========================================
-       
-        # 1. AppArmor 原生支持 (Debian 的核心安全模块，对标 CentOS 的 SELinux)
-        # 未开启会导致 Debian 下的 Docker 容器无法正常隔离，或者部分 snap/flatpak 应用崩溃
-        scripts/config --enable CONFIG_SECURITY_APPARMOR
-        scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM
-        scripts/config --enable CONFIG_DEFAULT_SECURITY_APPARMOR
-       
-        # 2. 云盘在线热扩容支持 (兼顾 ext4 和 xfs)
-        # VPS 升级硬盘后执行 resize2fs 刚需
-        scripts/config --enable CONFIG_BLK_DEV_LOOP
-        scripts/config --enable CONFIG_RESIZE_FS
-        scripts/config --enable CONFIG_XFS_ONLINE_REPAIR
-        scripts/config --enable CONFIG_XFS_ONLINE_SCRUB
-        # 3. 云厂商监控与审计依赖 (阿里云盾、腾讯云镜等底层依赖)
-        scripts/config --enable CONFIG_AUDIT
-        scripts/config --enable CONFIG_AUDITSYSCALL
-       
-        # 4. 确保 Debian 的 LSM 安全链正常加载 (AppArmor 优先级)
-        # 这里的顺序极其重要，apparmor 必须在 bpf 之前加载
-        scripts/config --set-str CONFIG_LSM "lockdown,yama,loadpin,safesetid,integrity,apparmor,bpf"
-       
-        # 5. 完善 Docker/Podman 内存隔离 (防止 OOM 导致宿主机死机)
-        scripts/config --enable CONFIG_MEMCG_V1
-       
-        # 6. 特殊云厂商网卡补全 (独立服务器、Oracle Cloud、高防机房常见)
-        scripts/config --enable CONFIG_NET_VENDOR_MELLANOX
-        scripts/config --enable CONFIG_MLX4_CORE
-       
-        # 重新生成最终配置
-        make olddefconfig
+          # 2. 核心云架构、磁盘控制器与多云环境网卡
+          scripts/config --enable CONFIG_VIRTIO_BLK
+          scripts/config --enable CONFIG_SCSI_VIRTIO
+          scripts/config --enable CONFIG_VIRTIO_PCI
+          scripts/config --enable CONFIG_NVME_CORE          # AWS Nitro
+          scripts/config --enable CONFIG_BLK_DEV_NVME
+          scripts/config --enable CONFIG_HYPERV_STORAGE
+          scripts/config --enable CONFIG_VMWARE_PVSCSI
+          scripts/config --enable CONFIG_XEN
+          scripts/config --enable CONFIG_XEN_PVH
+          scripts/config --enable CONFIG_XEN_PVHVM
+          scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND
+          scripts/config --enable CONFIG_VIRTIO_NET
+          scripts/config --enable CONFIG_VMXNET3
+          scripts/config --enable CONFIG_HYPERV_NET
+          scripts/config --enable CONFIG_XEN_NETDEV_FRONTEND
+          scripts/config --enable CONFIG_ENA_ETHERNET       # AWS ENA 驱动
+          scripts/config --enable CONFIG_GVE                  # GCP 谷歌云网卡
+          scripts/config --enable CONFIG_HYPERV_UTILS         # Azure 微软云底层心跳
+          scripts/config --enable CONFIG_HYPERV_BALLOON       # Azure 内存气球
+          scripts/config --enable CONFIG_NET_VENDOR_MELLANOX  # 高防/特种机房物理网卡
+          scripts/config --enable CONFIG_MLX4_CORE
 
-    - name: Compile Kernel
-      working-directory: ${{ env.KERNEL_DIR }}
-      run: |
-        echo -e "$(nproc) thread compile"
-       
-        # 1. 核心杀手锏：先多线程编译整个内核和模块！
-        # 此时所有的 C 代码和核心工具（如 fixdep）都会被安全、完整地生成
-        sudo time make -j$(nproc)
-       
-        # 2. 彻底消灭 Permission denied：用单线程 (-j1) 专门执行打包！并强制使用 xz 压缩 deb 包！
-        # 因为内核已经编译好了，这一步只会做拷贝和压缩，单线程也极快，且完美避开了读写冲突 Bug
-        sudo time make -j1 bindeb-pkg KDEB_COMPRESS=xz
-       
-        mkdir -p $GITHUB_WORKSPACE/upload
-        cd ..
-       
-        # 3. 转移生成的 deb 包
-        sudo mv *.deb $GITHUB_WORKSPACE/upload/
-       
-        # 4. 修复权限，交还给 Actions 账号以便顺利上传
-        sudo chown -R $USER:$USER $GITHUB_WORKSPACE/upload/
-       
-        echo "compile_status=success" >> $GITHUB_ENV
+          # 3. 硬件随机数生成器 (解决云 VPS 开机及 HTTPS 握手严重阻塞卡死)
+          scripts/config --enable CONFIG_HW_RANDOM_VIRTIO
+          scripts/config --enable CONFIG_CRYPTO_DEV_VIRTIO
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      if: ${{ env.compile_status == 'success' && env.UPLOAD_DIR == 'true' }}
-      with:
-        name: ${{ env.FILE_DATE }}
-        path: ${{ github.workspace }}/upload/
+          # 4. 云控制台与串口
+          scripts/config --enable CONFIG_HVC_XEN
+          scripts/config --enable CONFIG_VIRTIO_CONSOLE
+          scripts/config --enable CONFIG_SERIAL_8250
+          scripts/config --enable CONFIG_SERIAL_8250_CONSOLE
 
-    - name: Upload to WeTransfer
-      if: ${{ env.compile_status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled() }}
-      run: |
-        # 替换为真实的源脚本地址
-        curl -fsSL https://raw.githubusercontent.com/Mikubill/transfer/master/install.sh | sh
-        ./transfer wet -s -p 16 --no-progress ${{ github.workspace }}/upload 2>&1 | tee wetransfer.log
-        echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
+          # ==========================================
+          # 模块二：VNC 控制台防花屏与虚拟显卡
+          # ==========================================
+          scripts/config --enable CONFIG_VGA_CONSOLE
+          scripts/config --enable CONFIG_DUMMY_CONSOLE
+          scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
+          scripts/config --enable CONFIG_FB
+          scripts/config --enable CONFIG_DRM
+          scripts/config --enable CONFIG_DRM_BOCHS
+          scripts/config --enable CONFIG_DRM_QXL
+          scripts/config --enable CONFIG_DRM_VIRTIO_GPU
+          # 彻底禁用庞大的物理显卡驱动以瘦身
+          scripts/config --disable CONFIG_DRM_AMDGPU
+          scripts/config --disable CONFIG_DRM_NOUVEAU
+          scripts/config --disable CONFIG_DRM_I915
 
-    - name: Generate release tag
-      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
-      run: |
-        echo "release_tag=Debian_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
-        touch release.txt
+          # ==========================================
+          # 模块三：物理主机扩展 (软路由/独立服务器/NAS)
+          # ==========================================
+          scripts/config --enable CONFIG_ATA
+          scripts/config --enable CONFIG_SATA_AHCI
+          scripts/config --enable CONFIG_MEGARAID_SAS       # LSI 阵列卡
+          scripts/config --enable CONFIG_SCSI_MPT3SAS       # LSI HBA 直通卡
+          scripts/config --enable CONFIG_SCSI_HPSA          # HP 阵列卡
+          scripts/config --enable CONFIG_USB
+          scripts/config --enable CONFIG_USB_XHCI_HCD
+          scripts/config --enable CONFIG_USB_EHCI_HCD
+          scripts/config --enable CONFIG_USB_STORAGE
+          scripts/config --enable CONFIG_USB_UAS
+          scripts/config --enable CONFIG_INPUT_KEYBOARD
+          scripts/config --enable CONFIG_KEYBOARD_ATKBD
+          scripts/config --enable CONFIG_USB_HID
+          scripts/config --enable CONFIG_SYSFB_SIMPLEFB
+          scripts/config --enable CONFIG_FB_EFI
+          scripts/config --enable CONFIG_E1000E
+          scripts/config --enable CONFIG_IGB
+          scripts/config --enable CONFIG_IGC                # i225/i226 2.5G
+          scripts/config --enable CONFIG_IXGBE              # 万兆光口
+          scripts/config --enable CONFIG_R8169              # Realtek 家用
 
-    - name: Upload Kernel to Release
-      uses: softprops/action-gh-release@v2
-      if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
-      with:
-        tag_name: ${{ env.release_tag }}
-        body_path: release.txt
-        files: ${{ github.workspace }}/upload/*
+          # ==========================================
+          # 模块四：核心网络优化与精准时钟 (防数据库崩溃)
+          # ==========================================
+          # 1. BBR 与 QoS 队列 (极限测速与流量整形)
+          scripts/config --enable CONFIG_TCP_CONG_BBR
+          scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
+          scripts/config --enable CONFIG_NET_SCH_FQ
+          scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"
+          scripts/config --enable CONFIG_NET_SCH_FQ_CODEL
+          scripts/config --enable CONFIG_NET_SCH_FQ_PIE
+          scripts/config --enable CONFIG_NET_SCH_CAKE
+          scripts/config --enable CONFIG_NET_SCH_PIE
 
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        token: ${{ github.token }}
-        repository: ${{ github.repository }}
-        retain_days: 1
-        keep_minimum_runs: 2
+          # 2. 虚拟隧道 (代理与异地组网)
+          scripts/config --enable CONFIG_TUN
+          scripts/config --module CONFIG_DUMMY              # 外挂模块 (=m)
+          scripts/config --enable CONFIG_WIREGUARD
+
+          # 3. 策略路由
+          scripts/config --enable CONFIG_IP_ADVANCED_ROUTER
+          scripts/config --enable CONFIG_IP_MULTIPLE_TABLES
+          scripts/config --enable CONFIG_IPV6_MULTIPLE_TABLES
+          scripts/config --enable CONFIG_IPV6_SUBTREES
+
+          # 4. KVM / Hyper-V 精准时钟同步 (防高负载时发生时钟漂移导致 MariaDB/MySQL 事务损坏)
+          scripts/config --enable CONFIG_PTP_1588_CLOCK_KVM
+          scripts/config --enable CONFIG_HYPERV_TIMER
+
+          # ==========================================
+          # 模块五：UFW 与高级防火墙体系 (Debian / CyberPanel 刚需)
+          # ==========================================
+          # 1. UFW / iptables-persistent 防护动作与日志依赖
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_LOG      # 解决 UFW 报错 LOG target not found
+          scripts/config --enable CONFIG_IP_NF_TARGET_REJECT
+          scripts/config --enable CONFIG_IP6_NF_TARGET_REJECT
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_RATEEST   # UFW 速率检测
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_RATEEST
+
+          # 2. Netfilter 高级 Target/Match (防 CC 与连接控制)
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TPROXY
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_SOCKET
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MAC
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPRANGE
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MULTIPORT
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_COMMENT
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_RECENT    # fail2ban 刚需
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_LIMIT
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_HASHLIMIT
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_STRING    # 字符串特征拦截
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_LENGTH
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_STATE
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_CONNLIMIT # 限制并发
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_OWNER
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_REJECT
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_MARK
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_MARK
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TCPMSS
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_TOS
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_HL
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_PROXY
+
+          # 3. IPSet 集成 (海量 IP 黑名单秒级匹配)
+          scripts/config --enable CONFIG_IP_SET
+          scripts/config --enable CONFIG_IP_SET_MAX
+          scripts/config --enable CONFIG_IP_SET_BITMAP_IP
+          scripts/config --enable CONFIG_IP_SET_BITMAP_IPMAC
+          scripts/config --enable CONFIG_IP_SET_BITMAP_PORT
+          scripts/config --enable CONFIG_IP_SET_HASH_IP
+          scripts/config --enable CONFIG_IP_SET_HASH_NET
+          scripts/config --enable CONFIG_NETFILTER_XT_SET
+
+          # 4. Nftables 核心框架
+          scripts/config --enable CONFIG_NF_TABLES
+          scripts/config --enable CONFIG_NF_TABLES_INET
+          scripts/config --enable CONFIG_NF_TABLES_NETDEV
+          scripts/config --enable CONFIG_NF_TABLES_BRIDGE
+          scripts/config --enable CONFIG_NFT_CT
+          scripts/config --enable CONFIG_NFT_COUNTER
+          scripts/config --enable CONFIG_NFT_LOG
+          scripts/config --enable CONFIG_NFT_LIMIT
+          scripts/config --enable CONFIG_NFT_MASQ
+          scripts/config --enable CONFIG_NFT_REDIR
+          scripts/config --enable CONFIG_NFT_NAT
+          scripts/config --enable CONFIG_NFT_REJECT
+          scripts/config --enable CONFIG_NFT_COMPAT
+          scripts/config --enable CONFIG_NF_TABLES_IPV4
+          scripts/config --enable CONFIG_NFT_REJECT_IPV4
+          scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV4
+          scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV4
+          scripts/config --enable CONFIG_NF_TABLES_IPV6
+          scripts/config --enable CONFIG_NFT_REJECT_IPV6
+          scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV6
+          scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV6
+          scripts/config --enable CONFIG_NFT_FIB
+          scripts/config --enable CONFIG_NFT_FIB_INET
+          scripts/config --enable CONFIG_NFT_FIB_IPV4
+          scripts/config --enable CONFIG_NFT_FIB_IPV6
+          scripts/config --enable CONFIG_NFT_OBJREF
+          scripts/config --enable CONFIG_NFT_QUOTA
+          scripts/config --enable CONFIG_NFT_REJECT_INET
+          scripts/config --enable CONFIG_NFT_HASH
+          scripts/config --enable CONFIG_NFT_SOCKET
+          scripts/config --enable CONFIG_NFT_OSF
+          scripts/config --enable CONFIG_NFT_TPROXY
+          scripts/config --enable CONFIG_NFT_SYNPROXY
+
+          # 5. Mangle / Raw 表与特殊过滤
+          scripts/config --enable CONFIG_IP_NF_MANGLE
+          scripts/config --enable CONFIG_IP6_NF_MANGLE
+          scripts/config --enable CONFIG_IP_NF_RAW
+          scripts/config --enable CONFIG_IP6_NF_RAW
+          scripts/config --enable CONFIG_IP_NF_ARPTABLES
+          scripts/config --enable CONFIG_IP_NF_ARPFILTER
+          scripts/config --enable CONFIG_IP_NF_ARP_MANGLE
+
+          # ==========================================
+          # 模块六：容器引擎与面板建站全环境 (Docker/Systemd/面板)
+          # ==========================================
+          # 1. 资源隔离与命名空间
+          scripts/config --enable CONFIG_NAMESPACES
+          scripts/config --enable CONFIG_USER_NS
+          scripts/config --enable CONFIG_CGROUPS
+          scripts/config --enable CONFIG_MEMCG
+          scripts/config --enable CONFIG_MEMCG_SWAP
+          scripts/config --enable CONFIG_MEMCG_V1           # 面板/老架构防 OOM
+          scripts/config --enable CONFIG_BLK_CGROUP
+          scripts/config --enable CONFIG_CGROUP_SCHED
+          scripts/config --enable CONFIG_CGROUP_PIDS
+          scripts/config --enable CONFIG_CGROUP_DEVICE
+          scripts/config --enable CONFIG_CGROUP_CPUACCT
+          scripts/config --enable CONFIG_CPUSETS
+          
+          # 2. 容器存储、网桥与 NAT 映射
+          scripts/config --enable CONFIG_OVERLAY_FS
+          scripts/config --enable CONFIG_BRIDGE
+          scripts/config --enable CONFIG_BRIDGE_NETFILTER
+          scripts/config --enable CONFIG_VETH
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_CONNTRACK
+          scripts/config --enable CONFIG_NETFILTER_XT_MARK
+          scripts/config --enable CONFIG_IP_NF_IPTABLES
+          scripts/config --enable CONFIG_IP_NF_FILTER
+          scripts/config --enable CONFIG_IP_NF_NAT
+          scripts/config --enable CONFIG_IP_NF_TARGET_MASQUERADE
+          scripts/config --enable CONFIG_NF_NAT_IPV6
+          scripts/config --enable CONFIG_IP6_NF_IPTABLES
+          scripts/config --enable CONFIG_IP6_NF_FILTER
+          scripts/config --enable CONFIG_IP6_NF_TARGET_MASQUERADE
+
+          # 3. 磁盘配额 (EXT4 面板多用户划分空间依赖)
+          scripts/config --enable CONFIG_QUOTA
+          scripts/config --enable CONFIG_QUOTA_NETLINK_INTERFACE
+          scripts/config --enable CONFIG_QUOTACTL
+          scripts/config --enable CONFIG_QFMT_V1
+          scripts/config --enable CONFIG_QFMT_V2
+          scripts/config --enable CONFIG_EXT4_FS_POSIX_ACL
+          scripts/config --enable CONFIG_EXT4_FS_SECURITY
+
+          # 4. FTP 被动穿透与防御
+          scripts/config --enable CONFIG_NF_CONNTRACK_FTP
+          scripts/config --enable CONFIG_NF_NAT_FTP
+          scripts/config --enable CONFIG_SYN_COOKIES
+
+          # 5. Systemd 进程沙盒刚需 (确保 Debian12 面板组件正常启动)
+          scripts/config --enable CONFIG_SECCOMP
+          scripts/config --enable CONFIG_SECCOMP_FILTER
+          scripts/config --enable CONFIG_SECCOMP_CACHE_DEBUG
+
+          # ==========================================
+          # 模块七：高性能 Web IO 与 HTTPS 加速 (OpenLiteSpeed / Nginx)
+          # ==========================================
+          # 1. 核心 eBPF 与 网络旁路收发
+          scripts/config --enable CONFIG_BPF
+          scripts/config --enable CONFIG_BPF_SYSCALL
+          scripts/config --enable CONFIG_CGROUP_BPF
+          scripts/config --enable CONFIG_XDP_SOCKETS        # AF_XDP 网络高性能收发包
+
+          # 2. 异步 IO 与 Web 架构依赖
+          scripts/config --enable CONFIG_INOTIFY_USER       # 配置热重载
+          scripts/config --enable CONFIG_FANOTIFY
+          scripts/config --enable CONFIG_FANOTIFY_ACCESS_PERMISSIONS
+          scripts/config --enable CONFIG_SYSVIPC
+          scripts/config --enable CONFIG_POSIX_MQUEUE       # 数据库与异步 IO 依赖
+          scripts/config --enable CONFIG_AIO
+          scripts/config --enable CONFIG_IO_URING
+          scripts/config --enable CONFIG_EPOLL
+
+          # 3. 内核级 TLS (大幅降低 LiteSpeed / Nginx 的 HTTPS 加解密 CPU 占用)
+          scripts/config --enable CONFIG_TLS
+          scripts/config --enable CONFIG_TLS_DEVICE
+
+          # ==========================================
+          # 模块八：跨平台文件系统与高阶运维工具
+          # ==========================================
+          # 1. 监控、FUSE 与网络共享
+          scripts/config --enable CONFIG_FUSE_FS
+          scripts/config --enable CONFIG_CUSE
+          scripts/config --enable CONFIG_TASKSTATS
+          scripts/config --enable CONFIG_TASK_DELAY_ACCT
+          scripts/config --enable CONFIG_TASK_XACCT
+          scripts/config --enable CONFIG_TASK_IO_ACCOUNTING
+          scripts/config --enable CONFIG_CIFS
+          scripts/config --enable CONFIG_NFS_FS
+
+          # 2. U盘与跨平台文件格式
+          scripts/config --enable CONFIG_FAT_FS
+          scripts/config --enable CONFIG_VFAT_FS
+          scripts/config --enable CONFIG_EXFAT_FS
+          scripts/config --enable CONFIG_NTFS3_FS           # 原生高性能 NTFS3
+          scripts/config --enable CONFIG_NTFS3_LZX_XPRESS
+          scripts/config --enable CONFIG_NTFS3_FS_POSIX_ACL
+          scripts/config --enable CONFIG_NLS_CODEPAGE_437
+          scripts/config --enable CONFIG_NLS_ISO8859_1
+          scripts/config --enable CONFIG_NLS_UTF8
+
+          # 3. K3s / 负载均衡基础 (可选)
+          scripts/config --enable CONFIG_IP_VS
+          scripts/config --enable CONFIG_IP_VS_PROTO_TCP
+          scripts/config --enable CONFIG_IP_VS_PROTO_UDP
+          scripts/config --enable CONFIG_IP_VS_RR
+          scripts/config --enable CONFIG_IP_VS_WRR
+          scripts/config --enable CONFIG_IP_VS_SH
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPVS
+
+          # ==========================================
+          # 模块九：Debian 原生安全链、审计与内核压缩瘦身
+          # ==========================================
+          # 1. 强制采用纯正的 Debian LSM 安全链 (包含 AppArmor 与 BPF_LSM)
+          scripts/config --enable CONFIG_SECURITY_APPARMOR
+          scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM
+          scripts/config --enable CONFIG_DEFAULT_SECURITY_APPARMOR
+          scripts/config --enable CONFIG_SECURITY_APPARMOR_HASH   # 加快开机策略加载
+          scripts/config --enable CONFIG_BPF_LSM                  # Debian/Ubuntu 现代安全标准
+          scripts/config --set-str CONFIG_LSM "landlock,lockdown,yama,loadpin,safesetid,integrity,apparmor,bpf" # ★严格匹配纯 Debian12 默认加载顺序
+
+          # 2. 安全审计 (云厂商 Agent 依赖)
+          scripts/config --enable CONFIG_AUDIT
+          scripts/config --enable CONFIG_AUDITSYSCALL
+
+          # 3. 彻底禁用庞大无用的物理外设与内核调试信息
+          scripts/config --disable CONFIG_SOUND
+          scripts/config --disable CONFIG_SND
+          scripts/config --disable CONFIG_WLAN
+          scripts/config --disable CONFIG_BT
+          scripts/config --disable CONFIG_MEDIA_SUPPORT
+          scripts/config --disable DEBUG_INFO
+          scripts/config --disable DEBUG_INFO_BTF
+          scripts/config --disable DEBUG_INFO_DWARF4
+          scripts/config --disable DEBUG_INFO_DWARF5
+          scripts/config --disable DEBUG_INFO_NONE
+
+          # 4. 绕过模块签名验证报错
+          scripts/config --disable MODULE_SIG
+          scripts/config --disable SYSTEM_TRUSTED_KEYS
+          scripts/config --disable SYSTEM_REVOCATION_KEYS
+          sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
+          sed -ri '/CONFIG_SYSTEM_REVOCATION_KEYS/s/=.+/=""/g' .config
+
+          # 5. 全局 XZ 压缩算法 (极致减少镜像体积与兼容老 GRUB)
+          scripts/config --disable CONFIG_KERNEL_GZIP
+          scripts/config --disable CONFIG_KERNEL_ZSTD
+          scripts/config --disable CONFIG_KERNEL_BZIP2
+          scripts/config --disable CONFIG_KERNEL_LZMA
+          scripts/config --disable CONFIG_KERNEL_LZ4
+          scripts/config --disable CONFIG_KERNEL_LZO
+          scripts/config --enable CONFIG_KERNEL_XZ
+          scripts/config --disable CONFIG_MODULE_COMPRESS_ZSTD
+          scripts/config --disable CONFIG_MODULE_COMPRESS_GZIP
+          scripts/config --enable CONFIG_MODULE_COMPRESS_XZ
+
+          # ==========================================
+          # 生成最终内核配置
+          # ==========================================
+          make olddefconfig
+
+      - name: Compile Kernel
+        working-directory: ${{ env.KERNEL_DIR }}
+        run: |
+          echo -e "$(nproc) thread compile"
+         
+          # 1. 核心杀手锏：先多线程编译整个内核和模块！
+          # 此时所有的 C 代码和核心工具（如 fixdep）都会被安全、完整地生成
+          sudo time make -j$(nproc)
+         
+          # 2. 彻底消灭 Permission denied：用单线程 (-j1) 专门执行打包！并强制使用 xz 压缩 deb 包！
+          # 因为内核已经编译好了，这一步只会做拷贝和压缩，单线程也极快，且完美避开了读写冲突 Bug
+          sudo time make -j1 bindeb-pkg KDEB_COMPRESS=xz
+         
+          mkdir -p $GITHUB_WORKSPACE/upload
+          cd ..
+         
+          # 3. 转移生成的 deb 包
+          sudo mv *.deb $GITHUB_WORKSPACE/upload/
+         
+          # 4. 修复权限，交还给 Actions 账号以便顺利上传
+          sudo chown -R $USER:$USER $GITHUB_WORKSPACE/upload/
+         
+          echo "compile_status=success" >> $GITHUB_ENV
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ env.compile_status == 'success' && env.UPLOAD_DIR == 'true' }}
+        with:
+          name: ${{ env.FILE_DATE }}
+          path: ${{ github.workspace }}/upload/
+
+      - name: Upload to WeTransfer
+        if: ${{ env.compile_status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled() }}
+        run: |
+          # 已修复 Markdown 语法错误
+          curl -fsSL https://raw.githubusercontent.com/Mikubill/transfer/master/install.sh | sh
+          ./transfer wet -s -p 16 --no-progress ${{ github.workspace }}/upload 2>&1 | tee wetransfer.log
+          echo "::warning file=wetransfer.com::$(grep https wetransfer.log)"
+
+      - name: Generate release tag
+        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+        run: |
+          echo "release_tag=Debian_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
+          touch release.txt
+
+      - name: Upload Kernel to Release
+        uses: softprops/action-gh-release@v2
+        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+        with:
+          tag_name: ${{ env.release_tag }}
+          body_path: release.txt
+          files: ${{ github.workspace }}/upload/*
+
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 1
+          keep_minimum_runs: 2
