@@ -161,6 +161,26 @@ jobs:
         scripts/config --enable CONFIG_IGC # Intel i225/i226 2.5G 网卡 (现代软路由核心标配)
         scripts/config --enable CONFIG_IXGBE # Intel 10G 万兆光口网卡
         scripts/config --enable CONFIG_R8169 # Realtek (螃蟹) 千兆/2.5G 家用网卡
+
+        # ==========================================
+        # 补充：云主机 VNC 控制台与虚拟显卡防花屏支持
+        # ==========================================
+        # 1. 基础控制台文本输出
+        scripts/config --enable CONFIG_VGA_CONSOLE
+        scripts/config --enable CONFIG_DUMMY_CONSOLE
+        scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
+        scripts/config --enable CONFIG_FB
+
+        # 2. 开启 DRM 核心，但不编译物理显卡驱动
+        scripts/config --enable CONFIG_DRM
+        scripts/config --disable CONFIG_DRM_AMDGPU
+        scripts/config --disable CONFIG_DRM_NOUVEAU
+        scripts/config --disable CONFIG_DRM_I915
+        
+        # 3. KVM 环境常见虚拟显卡驱动 (Hostry 等 VPS 的 VNC 刚需)
+        scripts/config --enable CONFIG_DRM_BOCHS
+        scripts/config --enable CONFIG_DRM_QXL
+        scripts/config --enable CONFIG_DRM_VIRTIO_GPU
         # ==========================================
         # 模块三：核心网络与隧道优化 (TCP 发包与 VPN 虚拟网卡)
         # ==========================================
@@ -271,7 +291,6 @@ jobs:
         scripts/config --disable CONFIG_WLAN # 禁用无线局域网 (Wi-Fi)
         scripts/config --disable CONFIG_BT # 禁用蓝牙
         scripts/config --disable CONFIG_MEDIA_SUPPORT # 禁用音视频流媒体设备
-        scripts/config --disable CONFIG_DRM # 禁用重量级物理显卡框架 (Direct Rendering Manager)
         # ==========================================
         # 模块八：高阶日常软件、运维工具与外围生态支持
         # ==========================================
