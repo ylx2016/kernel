@@ -409,6 +409,47 @@ jobs:
           scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPVS
 
           # ==========================================
+          # 模块十：x86_64 终极硬件加速全家桶 (Intel + AMD 双平台通吃)
+          # 作用：榨干物理 CPU 性能，极致加速网络吞吐、磁盘 I/O 与加密运算
+          # ==========================================
+          
+          # 1. 基础 AES 加密加速 (HTTPS 建站、VPN 刚需)
+          scripts/config --enable CONFIG_CRYPTO_AES_NI_INTEL
+          
+          # 2. 高速流加密 (WireGuard 默认算法加速)
+          scripts/config --enable CONFIG_CRYPTO_CHACHA20_X86_64
+          scripts/config --enable CONFIG_CRYPTO_POLY1305_X86_64
+          
+          # 3. 终极哈希加速 (命中物理硅片加速，跑满 2.5G/万兆网络)
+          scripts/config --enable CONFIG_CRYPTO_SHA1_NI
+          scripts/config --enable CONFIG_CRYPTO_SHA256_NI
+          scripts/config --enable CONFIG_CRYPTO_SHA512_SSSE3
+          scripts/config --enable CONFIG_CRYPTO_BLAKE2S_X86
+          
+          # 4. CRC 数据校验加速 (大幅降低 EXT4/BTRFS 读写和网卡收发的 CPU 占用)
+          scripts/config --enable CONFIG_CRYPTO_CRC32C_INTEL
+          scripts/config --enable CONFIG_CRYPTO_CRC32_PCLMUL
+          scripts/config --enable CONFIG_CRYPTO_CRCT10DIF_PCLMUL
+          scripts/config --enable CONFIG_CRYPTO_GHASH_CLMUL_NI_INTEL
+          
+          # 5. 信任并激活 CPU 硬件真随机数 (秒开机，杜绝云服务器 SSH 登录卡顿)
+          scripts/config --enable CONFIG_RANDOM_TRUST_CPU
+          scripts/config --enable CONFIG_RANDOM_TRUST_BOOTLOADER
+          scripts/config --enable CONFIG_HW_RANDOM_AMD
+          
+          # 6. AMD 专属密码学协处理器 (CCP) 底层支持
+          scripts/config --enable CONFIG_CPU_SUP_AMD
+          scripts/config --enable CONFIG_CRYPTO_DEV_CCP
+          scripts/config --enable CONFIG_CRYPTO_DEV_CCP_DD
+          scripts/config --enable CONFIG_CRYPTO_DEV_SP_CCP
+          
+          # 7. AMD 现代 P-State 频率调度器与温度传感器 (Zen架构响应速度质的飞跃)
+          scripts/config --enable CONFIG_X86_AMD_PSTATE
+          scripts/config --enable CONFIG_X86_AMD_PSTATE_UT
+          scripts/config --set-str CONFIG_X86_AMD_PSTATE_DEFAULT_MODE "amd-pstate-epp"
+          scripts/config --enable CONFIG_SENSORS_K10TEMP
+
+          # ==========================================
           # 模块九：Debian 原生安全链、审计与内核压缩瘦身
           # ==========================================
           # 1. 强制采用纯正的 Debian LSM 安全链 (包含 AppArmor 与 BPF_LSM)
