@@ -2,6 +2,15 @@ name: CentOS Cloud Kernel Latest
 
 on:
   workflow_dispatch:
+    inputs:
+      source_method:
+        description: 'Source download method (源码获取方式)'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - git
   schedule:
     - cron: '0 20 * * 1,4'
 
@@ -81,16 +90,40 @@ jobs:
           echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
           echo "FILE_DATE=Kernel_CentOS_Cloud_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
           
-          tag_name="v${kernel_ver}"
-          echo "Cloning Linux Kernel tag $tag_name from stable tree..."
-          git clone --depth 1 --branch "$tag_name" https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-$kernel_ver
-          echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
+          # 提取主版本号，动态适配 v6.x / v7.x 的 CDN 路径
+          MAJOR_VER=$(echo $kernel_ver | cut -d. -f1)
+          TARBALL_URL="https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VER}.x/linux-${kernel_ver}.tar.xz"
+          GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
+          
+          FETCH_METHOD="${{ github.event.inputs.source_method }}"
+          if [ -z "$FETCH_METHOD" ]; then
+            FETCH_METHOD="auto"
+          fi
+          
+          echo "Selected fetch method: $FETCH_METHOD"
+          
+          if [ "$FETCH_METHOD" = "auto" ]; then
+            echo "Attempting to download tarball from CDN: $TARBALL_URL"
+            if wget --tries=3 --timeout=15 -q --show-progress -O linux.tar.xz "$TARBALL_URL"; then
+              echo "CDN download successful. Extracting tarball..."
+              tar -xf linux.tar.xz
+              rm linux.tar.xz
+              echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
+            else
+              echo "Warning: CDN download failed! Falling back to Git clone..."
+              git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
+              echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
+            fi
+          else
+            echo "Manual override: Forcing Git clone from $GIT_URL..."
+            git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
+            echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
+          fi
 
       - name: Configure Kernel (CentOS/RHEL Cloud & Panel Optimized)
         working-directory: ${{ env.KERNEL_DIR }}
         run: |
           make x86_64_defconfig
-          make kvm_guest.config
 
           # ==========================================
           # 模块一：云服务器底层驱动与系统熵池 (通配各类云主机)
@@ -418,6 +451,60 @@ jobs:
           scripts/config --enable CONFIG_X86_AMD_PSTATE_UT
           scripts/config --set-str CONFIG_X86_AMD_PSTATE_DEFAULT_MODE "amd-pstate-epp"
           scripts/config --enable CONFIG_SENSORS_K10TEMP
+
+          # ==========================================
+          # 模块十一：PVE 宿主机 / Hypervisor 核心组件支持
+          # 作用：让物理机具备运行 KVM 虚拟机、LXC 容器、硬件直通和复杂网络的能力
+          # ==========================================
+          
+          # 1. KVM 虚拟化宿主端支持 (必须，否则无法开机任何虚拟机)
+          scripts/config --enable CONFIG_VIRTUALIZATION
+          scripts/config --enable CONFIG_KVM
+          scripts/config --enable CONFIG_KVM_INTEL
+          scripts/config --enable CONFIG_KVM_AMD
+          scripts/config --enable CONFIG_VHOST_NET
+          scripts/config --enable CONFIG_VHOST_VSOCK
+          scripts/config --enable CONFIG_VHOST_SCSI
+          
+          # 2. IOMMU 与 VFIO 硬件直通 (网卡/显卡/硬盘直通给虚拟机的刚需)
+          scripts/config --enable CONFIG_IOMMU_SUPPORT
+          scripts/config --enable CONFIG_INTEL_IOMMU
+          scripts/config --enable CONFIG_INTEL_IOMMU_DEFAULT_ON
+          scripts/config --enable CONFIG_AMD_IOMMU
+          scripts/config --enable CONFIG_VFIO
+          scripts/config --enable CONFIG_VFIO_PCI
+          scripts/config --enable CONFIG_VFIO_IOMMU_TYPE1
+          scripts/config --enable CONFIG_IRQ_REMAP
+          
+          # 3. PVE 高级网络桥接、VLAN 与 OVS (否则 vmbr0 桥接网卡无法工作)
+          scripts/config --enable CONFIG_BONDING             # 网卡聚合/双线汇聚
+          scripts/config --enable CONFIG_DUMMY
+          scripts/config --enable CONFIG_MACVLAN             # LXC 和 Docker 常用网络
+          scripts/config --enable CONFIG_MACVTAP
+          scripts/config --enable CONFIG_IPVLAN
+          scripts/config --enable CONFIG_VXLAN
+          scripts/config --enable CONFIG_VLAN_8021Q          # PVE 上的 VLAN Tag 支持
+          scripts/config --enable CONFIG_OPENVSWITCH         # PVE OVS 虚拟交换机支持
+          scripts/config --enable CONFIG_NET_CLS_CGROUP
+          
+          # 4. LXC 容器与高级 Cgroup 资源隔离 (防止 LXC 容器无法启动)
+          scripts/config --enable CONFIG_CGROUP_FREEZER
+          scripts/config --enable CONFIG_CGROUP_HUGETLB
+          scripts/config --enable CONFIG_BLK_CGROUP_RWSTAT
+          scripts/config --enable CONFIG_CHECKPOINT_RESTORE
+          scripts/config --enable CONFIG_POSIX_MQUEUE
+          scripts/config --enable CONFIG_FHANDLE
+
+          # ==========================================
+          # 模块十二：LVM2 与 Device Mapper (PVE / 物理机存储刚需)
+          # 作用：支持 LVM Thin-pool 精简置备卷，解决 pve/data 无法挂载的问题
+          # ==========================================
+          scripts/config --enable CONFIG_MD
+          scripts/config --enable CONFIG_BLK_DEV_DM
+          scripts/config --enable CONFIG_DM_THIN_PROVISIONING
+          scripts/config --enable CONFIG_DM_CRYPT
+          scripts/config --enable CONFIG_DM_SNAPSHOT
+          scripts/config --enable CONFIG_DM_MIRROR
 
           # ==========================================
           # 模块九：CentOS 原生安全链、审计与内核瘦身
