@@ -539,6 +539,34 @@ jobs:
           scripts/config --enable CONFIG_DM_MIRROR
 
           # ==========================================
+          # 模块十三：IPv6 核心协议栈与高级网络 (PVE / 软路由刚需)
+          # 作用：彻底激活 IPv6 桥接、SLAAC 分配、隧道穿透及高级路由
+          # ==========================================
+          
+          # 1. 核心 IPv6 强制打入内核 (禁止作为外挂模块)
+          scripts/config --enable CONFIG_IPV6
+          
+          # 2. IPv6 高级路由与 SLAAC 自动分配依赖 (PVE vmbr0 桥接刚需)
+          scripts/config --enable CONFIG_IPV6_ROUTER_PREF      # 路由器首选项特性
+          scripts/config --enable CONFIG_IPV6_ROUTE_INFO       # IPv6 路由信息
+          scripts/config --enable CONFIG_IPV6_OPTIMISTIC_DAD   # 乐观的重复地址检测 (大幅加速虚拟机开机获取 IPv6 的速度)
+          scripts/config --enable CONFIG_IPV6_NDISC_NODETYPE   # 高级邻居发现
+          
+          # 3. IPv6 各种隧道支持 (异地组网、无 IPv6 环境下的隧道打洞)
+          scripts/config --enable CONFIG_IPV6_SIT              # IPv6-in-IPv4 隧道 (如 HE.net 免费 IPv6 隧道刚需)
+          scripts/config --enable CONFIG_IPV6_SIT_6RD          # 6rd 快速部署隧道
+          scripts/config --enable CONFIG_IPV6_TUNNEL           # 纯 IPv6 隧道
+          scripts/config --enable CONFIG_IPV6_GRE              # GRE over IPv6 隧道
+          scripts/config --enable CONFIG_IPV6_MULTIPLE_TABLES  # IPv6 多路由表 (多条宽带叠加/分流刚需)
+          scripts/config --enable CONFIG_IPV6_SUBTREES
+          
+          # 4. IPsec 加密支持 (如果你的 IPv6 走 IPsec VPN)
+          scripts/config --enable CONFIG_INET6_AH
+          scripts/config --enable CONFIG_INET6_ESP
+          scripts/config --enable CONFIG_INET6_IPCOMP
+          scripts/config --enable CONFIG_IPV6_MIP6             # 移动 IPv6 支持
+
+          # ==========================================
           # 模块九：Debian 原生安全链、审计与内核压缩瘦身
           # ==========================================
           # 1. 强制采用纯正的 Debian LSM 安全链 (包含 AppArmor 与 BPF_LSM)
