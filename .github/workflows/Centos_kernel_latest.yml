@@ -478,7 +478,6 @@ jobs:
           
           # 3. PVE 高级网络桥接、VLAN 与 OVS (否则 vmbr0 桥接网卡无法工作)
           scripts/config --enable CONFIG_BONDING             # 网卡聚合/双线汇聚
-          scripts/config --enable CONFIG_DUMMY
           scripts/config --enable CONFIG_MACVLAN             # LXC 和 Docker 常用网络
           scripts/config --enable CONFIG_MACVTAP
           scripts/config --enable CONFIG_IPVLAN
