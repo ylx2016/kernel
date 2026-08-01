@@ -228,7 +228,7 @@ jobs:
 
           # 2. 虚拟隧道 (代理与异地组网)
           scripts/config --enable CONFIG_TUN
-          scripts/config --module CONFIG_DUMMY              # 外挂模块 (=m)
+          scripts/config --module CONFIG_DUMMY              # 外挂模块 (=m) AWS问题
           scripts/config --enable CONFIG_WIREGUARD
 
           # 3. 策略路由
@@ -510,7 +510,6 @@ jobs:
           
           # 3. PVE 高级网络桥接、VLAN 与 OVS (否则 vmbr0 桥接网卡无法工作)
           scripts/config --enable CONFIG_BONDING             # 网卡聚合/双线汇聚
-          scripts/config --enable CONFIG_DUMMY
           scripts/config --enable CONFIG_MACVLAN             # LXC 和 Docker 常用网络
           scripts/config --enable CONFIG_MACVTAP
           scripts/config --enable CONFIG_IPVLAN
