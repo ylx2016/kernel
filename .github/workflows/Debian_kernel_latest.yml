@@ -242,6 +242,29 @@ jobs:
           scripts/config --enable CONFIG_HYPERV_TIMER
 
           # ==========================================
+          # 补充：Docker 网络端口映射 (DNAT/MASQUERADE) 刚需
+          # ==========================================
+          # 1. 基础 IPv4 iptables 框架与 NAT 表
+          scripts/config --enable CONFIG_IP_NF_IPTABLES
+          scripts/config --enable CONFIG_IP_NF_FILTER
+          scripts/config --enable CONFIG_IP_NF_NAT
+          scripts/config --enable CONFIG_IP_NF_MANGLE
+        
+          # 2. 核心 NAT 动作扩展 (彻底解决 DNAT 和 MASQUERADE 报错)
+          scripts/config --enable CONFIG_NETFILTER_XT_NAT
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_MASQUERADE
+          scripts/config --enable CONFIG_NETFILTER_XT_TARGET_REDIRECT
+          scripts/config --enable CONFIG_IP_NF_TARGET_MASQUERADE
+          scripts/config --enable CONFIG_IP_NF_TARGET_REDIRECT
+        
+          # 3. 基础 IPv6 iptables 框架 (防止 Docker IPv6 桥接网络报错)
+          scripts/config --enable CONFIG_IP6_NF_IPTABLES
+          scripts/config --enable CONFIG_IP6_NF_FILTER
+          scripts/config --enable CONFIG_IP6_NF_MANGLE
+          scripts/config --enable CONFIG_IP6_NF_NAT
+          scripts/config --enable CONFIG_IP6_NF_TARGET_MASQUERADE
+
+          # ==========================================
           # 模块五：UFW 与高级防火墙体系 (Debian / CyberPanel 刚需)
           # ==========================================
           # 1. UFW / iptables-persistent 防护动作与日志依赖
@@ -564,6 +587,31 @@ jobs:
           scripts/config --enable CONFIG_INET6_ESP
           scripts/config --enable CONFIG_INET6_IPCOMP
           scripts/config --enable CONFIG_IPV6_MIP6             # 移动 IPv6 支持
+
+          # ==========================================
+          # 模块十四：终极细节补全 (内存压缩、Intel对称调度、Web极速握手)
+          # ==========================================
+          
+          # 1. ZRAM 与 ZSWAP 内存压缩 (极其适合 1G/2G 内存的云 VPS，防 OOM 崩溃)
+          scripts/config --enable CONFIG_ZSMALLOC
+          scripts/config --enable CONFIG_ZRAM
+          scripts/config --enable CONFIG_ZSWAP
+          scripts/config --enable CONFIG_ZPOOL
+          scripts/config --enable CONFIG_CRYPTO_LZ4       # ZRAM 推荐的高速压缩算法
+          scripts/config --enable CONFIG_CRYPTO_ZSTD      # ZSWAP 推荐的高级压缩算法
+
+          # 2. Intel CPU 对称支持 (与 AMD P-State 呼应，榨干 Intel 性能)
+          scripts/config --enable CONFIG_CPU_SUP_INTEL
+          scripts/config --enable CONFIG_X86_INTEL_PSTATE
+          scripts/config --enable CONFIG_MICROCODE        # 允许内核加载 CPU 微码修复漏洞
+          scripts/config --enable CONFIG_MICROCODE_INTEL
+          scripts/config --enable CONFIG_MICROCODE_AMD
+          
+          # 3. TCP Fast Open (TFO) 显式开启 (降低 Nginx/LiteSpeed 握手延迟)
+          scripts/config --enable CONFIG_TCP_FASTOPEN
+          
+          # 4. IPsec 防火墙策略匹配 (配合 Module 13，使 UFW/iptables 能精准控制 VPN 流量)
+          scripts/config --enable CONFIG_NETFILTER_XT_MATCH_POLICY
 
           # ==========================================
           # 模块九：Debian 原生安全链、审计与内核压缩瘦身
