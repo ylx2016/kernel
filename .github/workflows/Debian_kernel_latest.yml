@@ -679,6 +679,40 @@ jobs:
           scripts/config --enable CONFIG_NET_ACT_BPF       # 执行 eBPF 动作
 
           # ==========================================
+          # 补充模块 A：提取自 Debian 官方的顶级异步与 TLS 卸载
+          # ==========================================
+          scripts/config --enable CONFIG_IO_URING_ZCRX      # 开启 io_uring 零拷贝接收
+          scripts/config --enable CONFIG_IO_URING_BPF       # 允许 eBPF 程序干预 io_uring
+          scripts/config --enable CONFIG_IO_URING_BPF_OPS   # io_uring BPF 操作支持
+          scripts/config --enable CONFIG_NET_HANDSHAKE      # 允许将 TLS 握手卸载到内核空间执行[cite: 1]
+          scripts/config --enable CONFIG_TCP_AO             # 现代化的 TCP 认证选项，抗注入攻击[cite: 1]
+
+          # ==========================================
+          # 补充模块 B：提取自 Debian 官方的 DAMON 内存智能回收
+          # ==========================================
+          scripts/config --enable CONFIG_DAMON              # 开启核心 DAMON 框架[cite: 1]
+          scripts/config --enable CONFIG_DAMON_VADDR        # 监控虚拟地址空间[cite: 1]
+          scripts/config --enable CONFIG_DAMON_PADDR        # 监控物理地址空间[cite: 1]
+          scripts/config --enable CONFIG_DAMON_RECLAIM      # 自动主动内存回收机制[cite: 1]
+          scripts/config --enable CONFIG_DAMON_LRU_SORT     # 基于访问频率优化 LRU 链表[cite: 1]
+
+          # ==========================================
+          # 补充模块 C：提取自 Debian 官方的 Livepatch 与内存安全加固
+          # ==========================================
+          scripts/config --enable CONFIG_HAVE_LIVEPATCH     # 支持热补丁底层架构[cite: 1]
+          scripts/config --enable CONFIG_LIVEPATCH          # 激活内核热补丁[cite: 1]
+          scripts/config --enable CONFIG_HARDENED_USERCOPY  # 强化内核与用户空间的数据拷贝安全[cite: 1]
+          scripts/config --enable CONFIG_INIT_STACK_ALL_ZERO # 自动将栈内存初始化为零，防数据泄露[cite: 1]
+          scripts/config --enable CONFIG_SECURITY_LANDLOCK  # 轻量级沙盒防御，适合隔离 Docker 破坏[cite: 1]
+
+          # ==========================================
+          # 补充模块 D：提取自 Debian 官方的 Rust 内核支持
+          # ==========================================
+          scripts/config --enable CONFIG_RUST                 # 开启 Rust 支持[cite: 1]
+          scripts/config --enable CONFIG_RUST_IS_AVAILABLE    # 确认 Rust 编译链就绪[cite: 1]
+          scripts/config --enable CONFIG_RUST_OVERFLOW_CHECKS # 开启 Rust 溢出检查[cite: 1]
+
+          # ==========================================
           # 模块九：Debian 原生安全链、审计与内核压缩瘦身
           # ==========================================
           # 1. 强制采用纯正的 Debian LSM 安全链 (包含 AppArmor 与 BPF_LSM)
