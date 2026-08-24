@@ -30,7 +30,6 @@ apply_common_config() {
     scripts/config --enable CONFIG_XFS_FS
     scripts/config --enable CONFIG_BTRFS_FS
     scripts/config --enable CONFIG_BLK_DEV_LOOP
-    scripts/config --enable CONFIG_RESIZE_FS
     scripts/config --enable CONFIG_XFS_ONLINE_REPAIR
     scripts/config --enable CONFIG_XFS_ONLINE_SCRUB
 
@@ -40,6 +39,10 @@ apply_common_config() {
     scripts/config --enable CONFIG_VIRTIO_PCI
     scripts/config --enable CONFIG_NVME_CORE            # AWS Nitro
     scripts/config --enable CONFIG_BLK_DEV_NVME
+    # ★ Hyper-V(Azure)父级开关：不开它，下面所有 HYPERV_* 驱动都会被 olddefconfig
+    #   静默丢弃 —— 实测某次成功 config 里 "# CONFIG_HYPERV is not set"，导致 Azure
+    #   上找不到磁盘/网卡驱动、直接开不了机。必须先开这个 VMBus 核心。
+    scripts/config --enable CONFIG_HYPERV
     scripts/config --enable CONFIG_HYPERV_STORAGE
     scripts/config --enable CONFIG_VMWARE_PVSCSI
     scripts/config --enable CONFIG_XEN
@@ -56,6 +59,13 @@ apply_common_config() {
     scripts/config --enable CONFIG_HYPERV_BALLOON       # Azure 内存气球
     scripts/config --enable CONFIG_NET_VENDOR_MELLANOX  # 高防/特种机房物理网卡
     scripts/config --enable CONFIG_MLX4_CORE
+    scripts/config --enable CONFIG_MLX4_EN              # Mellanox CX-3 以太网(光它 CORE 不够，要 EN 才通网)
+    scripts/config --enable CONFIG_MLX5_CORE            # Mellanox CX-4/5/6(云加速网络/特种机房主力)
+    scripts/config --enable CONFIG_MLX5_CORE_EN
+    # SR-IOV 虚拟网卡(VF)：云 VPS 常拿到的是 VF 而非物理 PF，缺了会网卡不认、开不了机
+    scripts/config --enable CONFIG_IGBVF
+    scripts/config --enable CONFIG_IXGBEVF
+    scripts/config --enable CONFIG_IAVF                 # Intel i40e/ice 系列 VF(原 i40evf)
     # ★ 通用 KVM/QEMU 内存气球：绝大多数廉价 VPS 是 KVM，服务商常用 virtio-balloon
     #   动态回收/超售内存，缺了它宿主无法回收本机空闲内存(defconfig 默认没开)。
     scripts/config --enable CONFIG_VIRTIO_BALLOON
@@ -122,8 +132,10 @@ apply_common_config() {
     scripts/config --disable CONFIG_DEFAULT_CUBIC
     scripts/config --enable CONFIG_DEFAULT_BBR
     scripts/config --enable CONFIG_NET_SCH_FQ
-    # 默认 qdisc 走 choice 成员 DEFAULT_FQ(依赖 NET_SCH_FQ=y)，并禁掉默认的 PFIFO_FAST。
-    # 注：即便这里没设成，运行时 sysctl net.core.default_qdisc=fq 也能生效，故 verify 只告警。
+    # 默认 qdisc 走 choice 成员 DEFAULT_FQ。★ 关键：这个 choice 被父开关
+    #   CONFIG_NET_SCH_DEFAULT gate 住(某次成功 config 里是 "# CONFIG_NET_SCH_DEFAULT is not set")，
+    #   不先开父开关，DEFAULT_FQ 永远设不上、DEFAULT_NET_SCH 也不会生成。
+    scripts/config --enable CONFIG_NET_SCH_DEFAULT
     scripts/config --disable CONFIG_DEFAULT_PFIFO_FAST
     scripts/config --enable CONFIG_DEFAULT_FQ
     scripts/config --enable CONFIG_NET_SCH_FQ_CODEL
@@ -231,18 +243,14 @@ apply_common_config() {
     scripts/config --enable CONFIG_NFT_COMPAT
     scripts/config --enable CONFIG_NF_TABLES_IPV4
     scripts/config --enable CONFIG_NFT_REJECT_IPV4
-    scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV4
-    scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV4
     scripts/config --enable CONFIG_NF_TABLES_IPV6
     scripts/config --enable CONFIG_NFT_REJECT_IPV6
-    scripts/config --enable CONFIG_NFT_CHAIN_ROUTE_IPV6
-    scripts/config --enable CONFIG_NFT_CHAIN_NAT_IPV6
+    # 注：NFT_CHAIN_ROUTE/NAT_IPV4/IPV6 旧内核的独立链开关已合并进 NFT_NAT + NFT_FIB，此处不再单列
     # FIB 路由转发表核心 (解决 firewalld reload 报错)
     scripts/config --enable CONFIG_NFT_FIB
     scripts/config --enable CONFIG_NFT_FIB_INET
     scripts/config --enable CONFIG_NFT_FIB_IPV4
     scripts/config --enable CONFIG_NFT_FIB_IPV6
-    scripts/config --enable CONFIG_NFT_OBJREF
     scripts/config --enable CONFIG_NFT_QUOTA
     scripts/config --enable CONFIG_NFT_REJECT_INET
     scripts/config --enable CONFIG_NFT_HASH
@@ -272,7 +280,6 @@ apply_common_config() {
     scripts/config --enable CONFIG_USER_NS
     scripts/config --enable CONFIG_CGROUPS
     scripts/config --enable CONFIG_MEMCG
-    scripts/config --enable CONFIG_MEMCG_SWAP
     scripts/config --enable CONFIG_MEMCG_V1             # 面板/老架构防 OOM
     scripts/config --enable CONFIG_BLK_CGROUP
     scripts/config --enable CONFIG_CGROUP_SCHED
@@ -285,10 +292,14 @@ apply_common_config() {
     scripts/config --enable CONFIG_OVERLAY_FS
     scripts/config --enable CONFIG_BRIDGE
     scripts/config --enable CONFIG_BRIDGE_NETFILTER
+    # PVE「VLAN 感知网桥」刚需(vmbr 上直接打 VLAN tag)，缺它该功能不可用
+    scripts/config --enable CONFIG_BRIDGE_VLAN_FILTERING
     scripts/config --enable CONFIG_VETH
     scripts/config --enable CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
     scripts/config --enable CONFIG_NETFILTER_XT_MATCH_CONNTRACK
     scripts/config --enable CONFIG_NETFILTER_XT_MARK
+    # connmark 匹配/打标(透明代理 sing-box/Xray 按连接策略路由常用)
+    scripts/config --enable CONFIG_NETFILTER_XT_CONNMARK
     scripts/config --enable CONFIG_NF_NAT_IPV6
 
     # 3. 磁盘配额 (面板多用户空间划分核心依赖)
@@ -320,6 +331,9 @@ apply_common_config() {
     # 1. 核心 eBPF 与网络旁路收发
     scripts/config --enable CONFIG_BPF
     scripts/config --enable CONFIG_BPF_SYSCALL
+    # ★ BPF JIT：不开则所有 eBPF 程序解释执行、性能差，且 Cilium/现代 nftables/XDP 等
+    #   基本要求 JIT。成功 config 里 "# CONFIG_BPF_JIT is not set" 是明显欠优。
+    scripts/config --enable CONFIG_BPF_JIT
     scripts/config --enable CONFIG_CGROUP_BPF
     scripts/config --enable CONFIG_XDP_SOCKETS          # AF_XDP 高性能收发包
 
@@ -349,6 +363,9 @@ apply_common_config() {
     scripts/config --enable CONFIG_TASK_IO_ACCOUNTING
     scripts/config --enable CONFIG_CIFS
     scripts/config --enable CONFIG_NFS_FS
+    # 内核 NFS 服务端：把本机当 NAS 对外提供 NFS 共享(上面 NFS_FS 只是客户端/挂载别人的)
+    scripts/config --enable CONFIG_NFSD
+    scripts/config --enable CONFIG_NFSD_V4
 
     # 2. U盘与跨平台文件格式
     scripts/config --enable CONFIG_FAT_FS
@@ -376,34 +393,23 @@ apply_common_config() {
     # 1. 基础 AES 加密加速 (HTTPS 建站、VPN 刚需)
     scripts/config --enable CONFIG_CRYPTO_AES_NI_INTEL
 
-    # 2. 高速流加密 (WireGuard 默认算法加速)
-    scripts/config --enable CONFIG_CRYPTO_CHACHA20_X86_64
-    scripts/config --enable CONFIG_CRYPTO_POLY1305_X86_64
+    # 注：ChaCha20/Poly1305/SHA-NI/SHA512-SSSE3/BLAKE2s/CRC32C-INTEL/CRC32-PCLMUL/
+    #     CRCT10DIF/GHASH-CLMUL 这些 x86 加速实现，新内核已重构进 CRYPTO_LIB_*_ARCH 与
+    #     CRC32_ARCH，由内核按 CPU 能力自动启用，不再是可单独设置的开关，故不再列出。
+    #     (AES-NI 仍是独立可设开关，保留上面一行即可。)
 
-    # 3. 哈希加速 (命中物理硅片加速，跑满 2.5G/万兆网络)
-    scripts/config --enable CONFIG_CRYPTO_SHA1_NI
-    scripts/config --enable CONFIG_CRYPTO_SHA256_NI
-    scripts/config --enable CONFIG_CRYPTO_SHA512_SSSE3
-    scripts/config --enable CONFIG_CRYPTO_BLAKE2S_X86
-
-    # 4. CRC 数据校验加速 (降低 EXT4/BTRFS 读写和网卡收发的 CPU 占用)
-    scripts/config --enable CONFIG_CRYPTO_CRC32C_INTEL
-    scripts/config --enable CONFIG_CRYPTO_CRC32_PCLMUL
-    scripts/config --enable CONFIG_CRYPTO_CRCT10DIF_PCLMUL
-    scripts/config --enable CONFIG_CRYPTO_GHASH_CLMUL_NI_INTEL
-
-    # 5. 信任并激活 CPU 硬件真随机数 (秒开机，杜绝 SSH 登录卡顿)
-    scripts/config --enable CONFIG_RANDOM_TRUST_CPU
-    scripts/config --enable CONFIG_RANDOM_TRUST_BOOTLOADER
+    # 信任并激活 CPU 硬件真随机数 (秒开机，杜绝 SSH 登录卡顿)
+    # 注：RANDOM_TRUST_CPU / RANDOM_TRUST_BOOTLOADER 自内核 6.2 起已删除为编译期开关，
+    #     改为默认开启、用启动参数 random.trust_cpu=off 才关闭，故无需在此设置。
     scripts/config --enable CONFIG_HW_RANDOM_AMD
 
-    # 6. AMD 专属密码学协处理器 (CCP)
+    # AMD 专属密码学协处理器 (CCP)
     scripts/config --enable CONFIG_CPU_SUP_AMD
     scripts/config --enable CONFIG_CRYPTO_DEV_CCP
     scripts/config --enable CONFIG_CRYPTO_DEV_CCP_DD
     scripts/config --enable CONFIG_CRYPTO_DEV_SP_CCP
 
-    # 7. AMD P-State 频率调度器与温度传感器
+    # AMD P-State 频率调度器与温度传感器
     #    注：原先这里还开了 CONFIG_X86_AMD_PSTATE_UT，那是单元测试模块，生产内核不需要，已移除
     scripts/config --enable CONFIG_X86_AMD_PSTATE
     # ★ CONFIG_X86_AMD_PSTATE_DEFAULT_MODE 是【整数枚举】(1=disable 2=passive 3=active/EPP 4=guided)，
@@ -450,6 +456,10 @@ apply_common_config() {
     scripts/config --enable CONFIG_CHECKPOINT_RESTORE
     scripts/config --enable CONFIG_FHANDLE
 
+    # 5. 硬件看门狗：PVE HA 围栏 / VPS 卡死自动重启。QEMU/KVM 常见的是 i6300esb。
+    scripts/config --enable CONFIG_WATCHDOG_CORE
+    scripts/config --enable CONFIG_I6300ESB_WDT
+
     # ==========================================
     # 模块十二：LVM2 与 Device Mapper (PVE / 物理机存储刚需)
     # ==========================================
@@ -490,13 +500,13 @@ apply_common_config() {
     scripts/config --enable CONFIG_ZPOOL
     scripts/config --enable CONFIG_CRYPTO_LZ4           # ZRAM 推荐算法
     scripts/config --enable CONFIG_CRYPTO_ZSTD          # ZSWAP 推荐算法
+    # 让 zram 也能用 zstd 后端(更高压缩比)，默认仍是 lzo-rle(更快)，运行时可切换
+    scripts/config --enable CONFIG_ZRAM_BACKEND_ZSTD
 
     # 2. Intel CPU 对称支持
     scripts/config --enable CONFIG_CPU_SUP_INTEL
     scripts/config --enable CONFIG_X86_INTEL_PSTATE
-    scripts/config --enable CONFIG_MICROCODE            # 加载 CPU 微码修复漏洞
-    scripts/config --enable CONFIG_MICROCODE_INTEL
-    scripts/config --enable CONFIG_MICROCODE_AMD
+    scripts/config --enable CONFIG_MICROCODE            # 加载 CPU 微码修复漏洞(新内核已合并 Intel/AMD)
 
     # 3. TCP Fast Open (降低 Nginx/LiteSpeed 握手延迟)
     scripts/config --enable CONFIG_TCP_FASTOPEN
@@ -513,6 +523,8 @@ apply_common_config() {
     scripts/config --enable CONFIG_TRANSPARENT_HUGEPAGE
     scripts/config --enable CONFIG_TRANSPARENT_HUGEPAGE_MADVISE
     scripts/config --disable CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS
+    # KSM 同页合并：PVE 宿主跑多台相似 VM 时去重内存，显著省 RAM(运行时 sysctl 开启)
+    scripts/config --enable CONFIG_KSM
 
     # ==========================================
     # 补充模块二：高级路由隔离与多路径传输 (代理与隧道分流刚需)
@@ -646,16 +658,16 @@ apply_common_config() {
     scripts/config --disable CONFIG_KERNEL_LZO
     scripts/config --enable CONFIG_KERNEL_XZ
 
-    # ★ 模块压缩必须固定 XZ，不能换 ZSTD：
-    #   .ko.zst 需要目标系统的 kmod >= 29 才认得，而
-    #     Debian 10 = kmod 26、Debian 11 = kmod 28、EL8 = kmod 25  → 全都不认
-    #     Debian 12 = kmod 30                                      → 才可以
-    #   一旦换 ZSTD，上述系统会「能开机但所有外挂模块静默加载失败」
-    #   （WireGuard、netfilter 模块、CONFIG_DUMMY 等全废），极难排查。
-    #   注意：老 GRUB 只关心上面的 KERNEL_XZ，与模块压缩无关 —— 别把两件事搞混。
-    # ★ 模块压缩是 choice：必须把其余成员(含默认的 NONE)全部关掉，XZ 才能选中。
-    #   原先只 --enable XZ 却留着默认的 NONE，olddefconfig 判定 choice 冲突/回退默认，
-    #   结果 XZ 根本没写进 .config。这里显式关掉 NONE / GZIP / ZSTD 再启用 XZ。
+    # ★ 模块压缩：真正的门是父开关 CONFIG_MODULE_COMPRESS。某次成功 config 里是
+    #   "# CONFIG_MODULE_COMPRESS is not set"，所以 MODULE_COMPRESS_XZ 这个符号根本不存在、
+    #   无从选起(这就是之前 verify 里 "XZ 符号完全不存在" 的原因)。必须先开父开关，
+    #   再选算法 XZ。用 XZ 而非 ZSTD 的理由：
+    #   .ko.zst 需要目标系统 kmod>=29，而 Debian10=kmod26 / Debian11=kmod28 / EL8=kmod25 全不认；
+    #   XZ 的模块压缩 kmod 很早(约 2012)就支持，几乎所有系统都能加载。
+    #   （老 GRUB 只关心上面的 KERNEL_XZ，与模块压缩无关，别混淆。）
+    #   注：下载体积由 .deb/.rpm 自身的 xz 打包压缩决定；模块压缩影响的是安装后
+    #   /lib/modules 的磁盘占用(未压缩可能几百 MB，XZ 后约几十 MB)。
+    scripts/config --enable  CONFIG_MODULE_COMPRESS
     scripts/config --disable CONFIG_MODULE_COMPRESS_NONE
     scripts/config --disable CONFIG_MODULE_COMPRESS_GZIP
     scripts/config --disable CONFIG_MODULE_COMPRESS_ZSTD
@@ -772,9 +784,10 @@ verify_config() {
         printf '  [OK]   %-45s %s\n' "CONFIG_MODULE_COMPRESS_XZ" "模块 XZ 压缩(兼容 kmod<29)"
     else
         # 诊断：区分「XZ 可选但没选中(scripts/config 问题)」还是「XZ 符号不存在(依赖/host 工具缺失被 gate)」
+        # 注意：grep 无匹配会返回非零，脚本顶部 set -e 会因此中断，务必用 || true 兜住。
         local mc xzstate
-        mc=$(grep -E '^CONFIG_MODULE_COMPRESS_[A-Z]+=y' .config | tr '\n' ' ')
-        xzstate=$(grep -E 'CONFIG_MODULE_COMPRESS_XZ' .config || echo 'XZ 符号完全不存在(被 Kconfig 依赖 gate 掉)')
+        mc=$(grep -E '^CONFIG_MODULE_COMPRESS_[A-Z]+=y' .config 2>/dev/null | tr '\n' ' ' || true)
+        xzstate=$(grep -E 'CONFIG_MODULE_COMPRESS_XZ' .config 2>/dev/null || echo 'XZ 符号完全不存在(被 Kconfig 依赖 gate 掉)')
         printf '  [WARN] %-45s 实际: %s| XZ: %s\n' "模块压缩(非 XZ，兼容但偏大)" "${mc:-NONE }" "$xzstate"
     fi
 
@@ -793,6 +806,17 @@ verify_config() {
     echo
     echo "--- 增强项：缺失只告警，不阻断 ---"
     _check_warn CONFIG_WIREGUARD          "WireGuard"
+    _check_warn CONFIG_HYPERV             "Hyper-V/Azure 支持"
+    _check_warn CONFIG_HYPERV_STORAGE     "Azure 磁盘(storvsc)"
+    _check_warn CONFIG_HYPERV_NET         "Azure 网卡(netvsc)"
+    _check_warn CONFIG_MLX5_CORE          "Mellanox CX-4/5/6 网卡"
+    _check_warn CONFIG_IXGBEVF            "SR-IOV VF 网卡(ixgbevf)"
+    _check_warn CONFIG_IAVF               "SR-IOV VF 网卡(i40e/ice)"
+    _check_warn CONFIG_BPF_JIT            "eBPF JIT 加速"
+    _check_warn CONFIG_BRIDGE_VLAN_FILTERING "PVE VLAN 感知网桥"
+    _check_warn CONFIG_NFSD               "NFS 服务端(NAS 对外共享)"
+    _check_warn CONFIG_KSM                "KSM 同页合并(PVE 省内存)"
+    _check_warn CONFIG_I6300ESB_WDT       "QEMU 看门狗(HA/卡死重启)"
     _check_warn CONFIG_VIRTIO_BALLOON     "KVM 内存气球"
     _check_warn CONFIG_KVM                "KVM 宿主(PVE)"
     _check_warn CONFIG_VFIO_PCI           "PCI 直通(PVE)"
