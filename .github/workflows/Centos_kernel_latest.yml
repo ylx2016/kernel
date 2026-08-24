@@ -91,7 +91,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl rpm rsync fakeroot libdw-dev elfutils
+          sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl aria2 rpm rsync fakeroot libdw-dev elfutils
 
       - name: Get Kernel Version & Source
         run: |
@@ -113,13 +113,23 @@ jobs:
           echo "Selected fetch method: $FETCH_METHOD"
 
           if [ "$FETCH_METHOD" = "auto" ]; then
-            echo "Attempting to download tarball from CDN: $TARBALL_URL"
-            if wget --tries=3 --timeout=15 -q --show-progress -O linux.tar.xz "$TARBALL_URL"; then
-              echo "CDN download successful. Extracting tarball..."
-              tar -xf linux.tar.xz
-              rm linux.tar.xz
+            echo "Downloading via aria2c (16 连接并发，抗单流卡顿): $TARBALL_URL"
+            # aria2c 多连接下载：cdn.kernel.org(Fastly) 偶发单流限速/卡顿(日志里 21K/s 那种)，
+            # 16 条连接里某条卡住其余仍在跑，实测比 wget 单流稳且快。失败再退回 git clone。
+            if aria2c -x16 -s16 -k1M --max-tries=3 --retry-wait=3 \
+                 --summary-interval=0 --console-log-level=warn \
+                 -o linux.tar.xz "$TARBALL_URL"; then
+              echo "Download OK. Extracting tarball..."
+              if tar -xf linux.tar.xz; then
+                rm -f linux.tar.xz
+              else
+                echo "Warning: 解压失败(下载可能损坏)，回退 Git clone..."
+                rm -f linux.tar.xz
+                git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
+              fi
             else
-              echo "Warning: CDN download failed! Falling back to Git clone..."
+              echo "Warning: aria2c download failed! Falling back to Git clone..."
+              rm -f linux.tar.xz
               git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
             fi
           else
