@@ -118,10 +118,13 @@ apply_common_config() {
     # ★ CONFIG_DEFAULT_TCP_CONG 是由 choice 派生的【只读字符串】，直接 --set-str 会被
     #   olddefconfig 按 choice 的实际选择重算覆盖(退回 cubic)。正确做法是启用 choice
     #   成员 DEFAULT_BBR(依赖 TCP_CONG_BBR=y)，字符串才会派生成 "bbr"。
+    #   同时禁掉 defconfig 默认的 CUBIC，避免 choice 出现双选导致回退。
+    scripts/config --disable CONFIG_DEFAULT_CUBIC
     scripts/config --enable CONFIG_DEFAULT_BBR
     scripts/config --enable CONFIG_NET_SCH_FQ
-    # ★ 同理，默认 qdisc 要通过 choice 成员 DEFAULT_FQ(依赖 NET_SCH_FQ)设置，
-    #   直接写 CONFIG_DEFAULT_NET_SCH 字符串会被 olddefconfig 丢弃。
+    # 默认 qdisc 走 choice 成员 DEFAULT_FQ(依赖 NET_SCH_FQ=y)，并禁掉默认的 PFIFO_FAST。
+    # 注：即便这里没设成，运行时 sysctl net.core.default_qdisc=fq 也能生效，故 verify 只告警。
+    scripts/config --disable CONFIG_DEFAULT_PFIFO_FAST
     scripts/config --enable CONFIG_DEFAULT_FQ
     scripts/config --enable CONFIG_NET_SCH_FQ_CODEL
     scripts/config --enable CONFIG_NET_SCH_FQ_PIE
@@ -705,6 +708,18 @@ _check_str() {
     fi
 }
 
+# 只告警版：适用于「设不上也能靠运行时兜底」的派生字符串(如默认 qdisc)。
+_check_str_warn() {
+    local key="$1" want="$2" note="${3:-}"
+    if grep -qE "^${key}=\"${want}\"$" .config; then
+        printf '  [OK]   %-45s = "%s"\n' "$key" "$want"
+    else
+        local actual
+        actual=$(grep -E "^${key}=" .config || echo '未设置')
+        printf '  [WARN] %-45s 期望 "%s"  <-- 实际: %s  %s\n' "$key" "$want" "$actual" "$note"
+    fi
+}
+
 verify_config() {
     local distro="${1:?需要指定发行版: centos|debian}"
 
@@ -728,7 +743,9 @@ verify_config() {
     _check_critical CONFIG_TCP_CONG_BBR          "BBR 拥塞控制"
     _check_critical CONFIG_NET_SCH_FQ            "FQ 队列"
     _check_str      CONFIG_DEFAULT_TCP_CONG      "bbr"
-    _check_str      CONFIG_DEFAULT_NET_SCH       "fq"
+    # 默认 qdisc 设不上也能靠 sysctl net.core.default_qdisc=fq 兜底，且 BBR 不挑 qdisc，
+    # 故降为告警不阻断构建。
+    _check_str_warn CONFIG_DEFAULT_NET_SCH       "fq"  "(可用 sysctl net.core.default_qdisc=fq 兜底)"
     _check_critical CONFIG_TUN                   "TUN/TAP 隧道"
     _check_critical CONFIG_IPV6                  "IPv6 协议栈"
     # 防火墙
@@ -744,7 +761,20 @@ verify_config() {
     _check_critical CONFIG_SECCOMP               "systemd 沙盒"
     # 瘦身是否真的生效
     _check_critical CONFIG_DEBUG_INFO_NONE       "确认未生成调试符号"
-    _check_critical CONFIG_MODULE_COMPRESS_XZ    "模块 XZ 压缩(兼容 kmod<29)"
+    # 模块压缩：唯一的【硬性】要求是「绝不能是 ZSTD」——.ko.zst 需要目标系统 kmod>=29，
+    # 而 Debian10/11、EL8 等 kmod<29 会「能开机但所有外挂模块静默加载失败」。
+    # XZ 最佳(压缩且兼容)；若因该内核 Kconfig 依赖导致回退成 NONE(未压缩)，同样兼容，
+    # 只是模块体积偏大，可接受，故仅告警。
+    if grep -q '^CONFIG_MODULE_COMPRESS_ZSTD=y' .config; then
+        printf '  [FAIL] %-45s %s\n' "CONFIG_MODULE_COMPRESS_ZSTD" "选中了 ZSTD —— kmod<29 系统模块加载会全部失败！"
+        _vc_fail=1
+    elif grep -q '^CONFIG_MODULE_COMPRESS_XZ=y' .config; then
+        printf '  [OK]   %-45s %s\n' "CONFIG_MODULE_COMPRESS_XZ" "模块 XZ 压缩(兼容 kmod<29)"
+    else
+        local mc
+        mc=$(grep -E '^CONFIG_MODULE_COMPRESS_[A-Z]+=y' .config || echo '(默认 NONE)')
+        printf '  [WARN] %-45s 未用 XZ，回退为: %s  (兼容但体积偏大)\n' "模块压缩" "$mc"
+    fi
 
     # 发行版安全链
     case "$distro" in
