@@ -771,9 +771,11 @@ verify_config() {
     elif grep -q '^CONFIG_MODULE_COMPRESS_XZ=y' .config; then
         printf '  [OK]   %-45s %s\n' "CONFIG_MODULE_COMPRESS_XZ" "模块 XZ 压缩(兼容 kmod<29)"
     else
-        local mc
-        mc=$(grep -E '^CONFIG_MODULE_COMPRESS_[A-Z]+=y' .config || echo '(默认 NONE)')
-        printf '  [WARN] %-45s 未用 XZ，回退为: %s  (兼容但体积偏大)\n' "模块压缩" "$mc"
+        # 诊断：区分「XZ 可选但没选中(scripts/config 问题)」还是「XZ 符号不存在(依赖/host 工具缺失被 gate)」
+        local mc xzstate
+        mc=$(grep -E '^CONFIG_MODULE_COMPRESS_[A-Z]+=y' .config | tr '\n' ' ')
+        xzstate=$(grep -E 'CONFIG_MODULE_COMPRESS_XZ' .config || echo 'XZ 符号完全不存在(被 Kconfig 依赖 gate 掉)')
+        printf '  [WARN] %-45s 实际: %s| XZ: %s\n' "模块压缩(非 XZ，兼容但偏大)" "${mc:-NONE }" "$xzstate"
     fi
 
     # 发行版安全链
