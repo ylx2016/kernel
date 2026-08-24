@@ -56,6 +56,9 @@ apply_common_config() {
     scripts/config --enable CONFIG_HYPERV_BALLOON       # Azure 内存气球
     scripts/config --enable CONFIG_NET_VENDOR_MELLANOX  # 高防/特种机房物理网卡
     scripts/config --enable CONFIG_MLX4_CORE
+    # ★ 通用 KVM/QEMU 内存气球：绝大多数廉价 VPS 是 KVM，服务商常用 virtio-balloon
+    #   动态回收/超售内存，缺了它宿主无法回收本机空闲内存(defconfig 默认没开)。
+    scripts/config --enable CONFIG_VIRTIO_BALLOON
 
     # 3. 硬件随机数生成器 (解决云 VPS 开机及 HTTPS 握手严重阻塞卡死)
     scripts/config --enable CONFIG_HW_RANDOM_VIRTIO
@@ -112,9 +115,14 @@ apply_common_config() {
     # ==========================================
     # 1. BBR 与 QoS 队列 (极限测速与流量整形)
     scripts/config --enable CONFIG_TCP_CONG_BBR
-    scripts/config --set-str CONFIG_DEFAULT_TCP_CONG "bbr"
+    # ★ CONFIG_DEFAULT_TCP_CONG 是由 choice 派生的【只读字符串】，直接 --set-str 会被
+    #   olddefconfig 按 choice 的实际选择重算覆盖(退回 cubic)。正确做法是启用 choice
+    #   成员 DEFAULT_BBR(依赖 TCP_CONG_BBR=y)，字符串才会派生成 "bbr"。
+    scripts/config --enable CONFIG_DEFAULT_BBR
     scripts/config --enable CONFIG_NET_SCH_FQ
-    scripts/config --set-str CONFIG_DEFAULT_NET_SCH "fq"
+    # ★ 同理，默认 qdisc 要通过 choice 成员 DEFAULT_FQ(依赖 NET_SCH_FQ)设置，
+    #   直接写 CONFIG_DEFAULT_NET_SCH 字符串会被 olddefconfig 丢弃。
+    scripts/config --enable CONFIG_DEFAULT_FQ
     scripts/config --enable CONFIG_NET_SCH_FQ_CODEL
     scripts/config --enable CONFIG_NET_SCH_FQ_PIE
     scripts/config --enable CONFIG_NET_SCH_CAKE
@@ -194,7 +202,9 @@ apply_common_config() {
 
     # 3. IPSet 集成 (海量 IP 黑名单秒级匹配)
     scripts/config --enable CONFIG_IP_SET
-    scripts/config --enable CONFIG_IP_SET_MAX
+    # ★ CONFIG_IP_SET_MAX 是【整数】(ipset 集合上限，默认 256)，不是布尔开关。
+    #   原先 --enable 会写成 =y，触发 kconfig "invalid value" 报错。用默认 256 即可；
+    #   若要改数量：scripts/config --set-val CONFIG_IP_SET_MAX 512
     scripts/config --enable CONFIG_IP_SET_BITMAP_IP
     scripts/config --enable CONFIG_IP_SET_BITMAP_IPMAC
     scripts/config --enable CONFIG_IP_SET_BITMAP_PORT
@@ -393,7 +403,9 @@ apply_common_config() {
     # 7. AMD P-State 频率调度器与温度传感器
     #    注：原先这里还开了 CONFIG_X86_AMD_PSTATE_UT，那是单元测试模块，生产内核不需要，已移除
     scripts/config --enable CONFIG_X86_AMD_PSTATE
-    scripts/config --set-str CONFIG_X86_AMD_PSTATE_DEFAULT_MODE "amd-pstate-epp"
+    # ★ CONFIG_X86_AMD_PSTATE_DEFAULT_MODE 是【整数枚举】(1=disable 2=passive 3=active/EPP 4=guided)，
+    #   不是字符串。原先 --set-str "amd-pstate-epp" 触发 kconfig "invalid value" 报错。
+    #   X86_AMD_PSTATE=y 时 Kconfig 默认已是 3(active=EPP)，无需手工设置，故直接移除。
     scripts/config --enable CONFIG_SENSORS_K10TEMP
 
     # ==========================================
@@ -638,9 +650,13 @@ apply_common_config() {
     #   一旦换 ZSTD，上述系统会「能开机但所有外挂模块静默加载失败」
     #   （WireGuard、netfilter 模块、CONFIG_DUMMY 等全废），极难排查。
     #   注意：老 GRUB 只关心上面的 KERNEL_XZ，与模块压缩无关 —— 别把两件事搞混。
-    scripts/config --disable CONFIG_MODULE_COMPRESS_ZSTD
+    # ★ 模块压缩是 choice：必须把其余成员(含默认的 NONE)全部关掉，XZ 才能选中。
+    #   原先只 --enable XZ 却留着默认的 NONE，olddefconfig 判定 choice 冲突/回退默认，
+    #   结果 XZ 根本没写进 .config。这里显式关掉 NONE / GZIP / ZSTD 再启用 XZ。
+    scripts/config --disable CONFIG_MODULE_COMPRESS_NONE
     scripts/config --disable CONFIG_MODULE_COMPRESS_GZIP
-    scripts/config --enable CONFIG_MODULE_COMPRESS_XZ
+    scripts/config --disable CONFIG_MODULE_COMPRESS_ZSTD
+    scripts/config --enable  CONFIG_MODULE_COMPRESS_XZ
 
     echo "==> 公共配置套用完毕"
 }
@@ -745,6 +761,7 @@ verify_config() {
     echo
     echo "--- 增强项：缺失只告警，不阻断 ---"
     _check_warn CONFIG_WIREGUARD          "WireGuard"
+    _check_warn CONFIG_VIRTIO_BALLOON     "KVM 内存气球"
     _check_warn CONFIG_KVM                "KVM 宿主(PVE)"
     _check_warn CONFIG_VFIO_PCI           "PCI 直通(PVE)"
     _check_warn CONFIG_INTEL_IOMMU        "Intel IOMMU"
