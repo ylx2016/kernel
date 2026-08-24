@@ -91,7 +91,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd wget curl aria2 rpm rsync fakeroot libdw-dev elfutils
+          sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd xz-utils wget curl aria2 rpm rsync fakeroot libdw-dev elfutils
 
       - name: Get Kernel Version & Source
         run: |
@@ -227,12 +227,15 @@ jobs:
           ### 安装
           \`\`\`bash
           sudo rpm -ivh --force kernel-*.rpm
+          # 开机默认启用 BBR + FQ(内核已内建 BBR，FQ 队列用 sysctl 开启最稳妥)
+          echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" | sudo tee /etc/sysctl.d/99-bbr.conf
+          sudo sysctl --system
           sudo grubby --set-default /boot/vmlinuz-${{ env.kernel_ver }}*
           sudo reboot
           \`\`\`
 
           ### 主要特性
-          - 拥塞控制默认 BBR，队列默认 FQ
+          - 拥塞控制默认 BBR(已内建)；FQ 队列建议用上面的 sysctl 开启
           - 全云平台驱动：KVM/virtio、Xen、Hyper-V、VMware、AWS ENA/Nitro、GCP GVE
           - 容器全栈：Docker/Podman 所需 overlayfs、cgroup、netfilter NAT 全开
           - PVE 宿主：KVM、VFIO 直通、IOMMU、OVS、VLAN、LVM Thin
