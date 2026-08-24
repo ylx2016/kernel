@@ -65,7 +65,7 @@ apply_common_config() {
     # SR-IOV 虚拟网卡(VF)：云 VPS 常拿到的是 VF 而非物理 PF，缺了会网卡不认、开不了机
     scripts/config --enable CONFIG_IGBVF
     scripts/config --enable CONFIG_IXGBEVF
-    scripts/config --enable CONFIG_IAVF                 # Intel i40e/ice 系列 VF(原 i40evf)
+    scripts/config --enable CONFIG_I40EVF                # Intel i40e/ice 系列 VF(此内核符号名是 I40EVF 而非 IAVF)
     # ★ 通用 KVM/QEMU 内存气球：绝大多数廉价 VPS 是 KVM，服务商常用 virtio-balloon
     #   动态回收/超售内存，缺了它宿主无法回收本机空闲内存(defconfig 默认没开)。
     scripts/config --enable CONFIG_VIRTIO_BALLOON
@@ -298,8 +298,12 @@ apply_common_config() {
     scripts/config --enable CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
     scripts/config --enable CONFIG_NETFILTER_XT_MATCH_CONNTRACK
     scripts/config --enable CONFIG_NETFILTER_XT_MARK
-    # connmark 匹配/打标(透明代理 sing-box/Xray 按连接策略路由常用)
-    scripts/config --enable CONFIG_NETFILTER_XT_CONNMARK
+    # connmark 匹配/打标(透明代理 sing-box/Xray 按连接策略路由常用)。
+    # ★ 要开的是 iptables 的 match+target(它们会自动 select 内部的 XT_CONNMARK 与
+    #   NF_CONNTRACK_MARK)；直接开 XT_CONNMARK 那个内部符号，iptables -m connmark/-j
+    #   CONNMARK 仍然不可用。nftables 侧的 ct mark 另由 NFT_CT 提供(已开)。
+    scripts/config --enable CONFIG_NETFILTER_XT_MATCH_CONNMARK
+    scripts/config --enable CONFIG_NETFILTER_XT_TARGET_CONNMARK
     scripts/config --enable CONFIG_NF_NAT_IPV6
 
     # 3. 磁盘配额 (面板多用户空间划分核心依赖)
@@ -500,8 +504,11 @@ apply_common_config() {
     scripts/config --enable CONFIG_ZPOOL
     scripts/config --enable CONFIG_CRYPTO_LZ4           # ZRAM 推荐算法
     scripts/config --enable CONFIG_CRYPTO_ZSTD          # ZSWAP 推荐算法
-    # 让 zram 也能用 zstd 后端(更高压缩比)，默认仍是 lzo-rle(更快)，运行时可切换
+    # zram 压缩后端：同时留 zstd(高压缩比)与 lzo(低 CPU)，运行时可 zramctl 切换。
+    # 注：仅开 zstd 会顶掉 defconfig 的 FORCE_LZO，导致 lzo 后端消失、部分 zram-tools
+    #     脚本指定 lzo-rle 失败；两个都留最稳。默认压缩算法由 olddefconfig 定(通常 zstd)。
     scripts/config --enable CONFIG_ZRAM_BACKEND_ZSTD
+    scripts/config --enable CONFIG_ZRAM_BACKEND_LZO
 
     # 2. Intel CPU 对称支持
     scripts/config --enable CONFIG_CPU_SUP_INTEL
@@ -599,9 +606,11 @@ apply_common_config() {
     scripts/config --enable CONFIG_DAMON_LRU_SORT       # 按访问频率优化 LRU
 
     # ==========================================
-    # 补充模块 C：Livepatch 与内存安全加固
+    # 补充模块 C：内存安全加固
     # ==========================================
-    scripts/config --enable CONFIG_LIVEPATCH            # 内核热补丁
+    # 注：CONFIG_LIVEPATCH 已去掉——它依赖 FUNCTION_TRACER/DYNAMIC_FTRACE(本内核为精简未开)，
+    #     且自编译内核无法直接用发行版的 livepatch(补丁要针对具体内核构建)，开了也是空能力。
+    #     如确需热补丁，需另开 ftrace 一整套并自建 kpatch 模块，再单独提出。
     scripts/config --enable CONFIG_HARDENED_USERCOPY    # 强化内核/用户空间拷贝
     scripts/config --enable CONFIG_INIT_STACK_ALL_ZERO  # 栈内存清零，防数据泄露
     scripts/config --enable CONFIG_SECURITY_LANDLOCK    # 轻量级沙盒
@@ -811,7 +820,7 @@ verify_config() {
     _check_warn CONFIG_HYPERV_NET         "Azure 网卡(netvsc)"
     _check_warn CONFIG_MLX5_CORE          "Mellanox CX-4/5/6 网卡"
     _check_warn CONFIG_IXGBEVF            "SR-IOV VF 网卡(ixgbevf)"
-    _check_warn CONFIG_IAVF               "SR-IOV VF 网卡(i40e/ice)"
+    _check_warn CONFIG_I40EVF             "SR-IOV VF 网卡(i40e/ice)"
     _check_warn CONFIG_BPF_JIT            "eBPF JIT 加速"
     _check_warn CONFIG_BRIDGE_VLAN_FILTERING "PVE VLAN 感知网桥"
     _check_warn CONFIG_NFSD               "NFS 服务端(NAS 对外共享)"
@@ -831,7 +840,6 @@ verify_config() {
     _check_warn CONFIG_NET_VRF            "VRF 路由隔离"
     _check_warn CONFIG_LRU_GEN            "MGLRU"
     _check_warn CONFIG_DAMON              "DAMON 内存回收"
-    _check_warn CONFIG_LIVEPATCH          "内核热补丁"
     _check_warn CONFIG_SECURITY_LANDLOCK  "Landlock 沙盒"
     _check_warn CONFIG_BPF_LSM            "BPF LSM"
     _check_warn CONFIG_NTFS3_FS           "NTFS3"
