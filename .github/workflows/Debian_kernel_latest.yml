@@ -11,8 +11,15 @@ on:
         options:
           - auto
           - git
+      force_build:
+        description: '已发布过也强制重新编译 (force rebuild even if released)'
+        required: false
+        default: false
+        type: boolean
   schedule:
-    - cron: '0 20 * * 1,4'
+    # 避开 UTC 整点：'0 20' 这种整点是 GitHub 定时任务排队高峰，
+    # 实测被推迟 3.5h / 7.9h 才真正开跑，挪到非整点能明显改善
+    - cron: '23 19 * * 1,4'
 
 env:
   UPLOAD_DIR: true
@@ -40,6 +47,8 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
+          # 定时任务触发时 inputs 为空，下面用 :-false 兜底
+          FORCE_BUILD: ${{ inputs.force_build }}
         run: |
           set -euo pipefail
           kernel_ver=$(git ls-remote --tags https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git | \
@@ -55,11 +64,27 @@ jobs:
           echo "Latest stable kernel version is: $kernel_ver"
           echo "kernel_ver=$kernel_ver" >> $GITHUB_OUTPUT
 
-          # --limit 200：gh release list 默认只列 30 条，Release 攒多了会误判「没构建过」而重复编译
-          if gh release list --limit 200 -R ${{ github.repository }} | grep -q "Debian_Kernel_Cloud_${kernel_ver}_bbr"; then
+          # ---- 判断这个版本是否已经发布过 ----
+          # ★ 绝对不要写成 `gh release list ... | grep -q ...`：
+          #   grep -q 一命中就退出、关掉管道读端，gh 剩下的行写不出去拿到 EPIPE，
+          #   被 SIGPIPE 静默打死(退出码 141)，再被 set -o pipefail 放大成「整条管道失败」，
+          #   于是 if 判假、走 else，结论变成「没发布过」。
+          #   注意只有【命中】时才会错，没命中反而是对的 —— 等于去重永远失效。
+          #   2026-08-31 的定时任务就是这样把已经发布过的 7.2.2 又编译发布了一遍。
+          # 正确做法：先把输出收进变量(命令替换会把输出读干)，再对变量做匹配。
+          # 另外本仓库 release 数量很大，--limit 要留足余量；取不到列表时直接失败
+          # (fail-closed)，绝不能默认「没发布过」而去编译。
+          if ! released=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 \
+                            --json tagName --jq '.[].tagName'); then
+            echo "Error: 无法获取 Release 列表，为避免重复发布，直接终止。"
+            exit 1
+          fi
+
+          # -F 固定字符串匹配：tag 里的 . 不该被当成通配符
+          if grep -qF "Debian_Kernel_Cloud_${kernel_ver}_bbr_" <<<"$released"; then
             echo "Kernel $kernel_ver has already been released."
-            if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-              echo "Manual trigger detected. Forcing build."
+            if [ "${FORCE_BUILD:-false}" == "true" ]; then
+              echo "force_build=true, forcing rebuild."
               echo "build_needed=true" >> $GITHUB_OUTPUT
             else
               echo "build_needed=false" >> $GITHUB_OUTPUT
@@ -254,6 +279,52 @@ jobs:
             --title "Debian Cloud Kernel ${{ env.kernel_ver }} (BBR)" \
             --notes-file release.txt
 
+      # 只清理本流水线自己产出的 Release，保留最新 3 份，Release 和 tag 一起删
+      - name: Prune old releases
+        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PREFIX: Debian_Kernel_Cloud_
+          KEEP: 3
+        run: |
+          set -euo pipefail
+          # ★ 同样不用 `gh ... | grep -q` 这种会提前退出的管道：读端一关，gh 就吃 EPIPE
+          #   被 SIGPIPE 打死(141)，pipefail 再把整条管道判失败。下面的 awk/sort/tail/cut
+          #   都会把输入读干，不会触发。取不到列表就跳过清理——产物已发布成功，不该让 job 变红。
+          if ! all=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 \
+                       --json tagName,publishedAt --jq '.[] | [.publishedAt, .tagName] | @tsv'); then
+            echo "警告: 无法获取 Release 列表，跳过本次清理（本次发布已成功，不影响产物）"
+            exit 0
+          fi
+
+          # 用「前缀 + 纯数字版本 + _bbr_」精确锚定本流水线产物：不会误伤 Centos_Kernel_* /
+          # Ubuntu_Kernel_* 等历史前缀，也不会误伤将来可能出现的 arm64（arm64 不是数字）。
+          # 按 publishedAt 排序：createdAt 取的是 tag 所指 commit 的日期，会大量重复、排序不稳。
+          stale=$(printf '%s\n' "$all" \
+            | awk -F'\t' -v pfx="$RELEASE_PREFIX" '$2 ~ "^" pfx "[0-9]+([.][0-9]+)*_bbr_"' \
+            | sort -r \
+            | tail -n +"$((KEEP + 1))" \
+            | cut -f2)
+
+          if [ -z "$stale" ]; then
+            echo "${RELEASE_PREFIX}* 的 Release 未超过 ${KEEP} 份，无需清理。"
+            exit 0
+          fi
+
+          echo "保留最新 ${KEEP} 份，以下 $(printf '%s\n' "$stale" | wc -l) 个旧 Release 将连同 tag 一并删除:"
+          printf '  %s\n' "$stale"
+
+          printf '%s\n' "$stale" | while read -r tag; do
+            [ -n "$tag" ] || continue
+            # 单个失败不影响其余，也不让整个 job 变红（产物已经发出去了）
+            if gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag; then
+              echo "  已删除 release + tag: $tag"
+            else
+              echo "  警告: $tag 删除失败，跳过"
+            fi
+            sleep 1   # GitHub 对写操作有二级限流，间隔 1s 最稳
+          done
+
       # 用 gh CLI 清理，替代 Mattraks/delete-workflow-runs（老 Node20 action）
       - name: Prune old workflow runs
         if: ${{ !cancelled() }}
@@ -261,6 +332,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # 保留最近 3 次运行。注意代价：出问题时日志会很快被自己删掉，
+          # 这次定位 7.2.2 重复编译就因为相关运行记录已被清掉而断过线索
+          # —— 真出问题要当天就看日志、必要时先下载 artifact 留证。
           echo "保留最近 3 次运行，其余删除（进行中的当前 run 会被自动跳过）"
           gh run list --workflow "${{ github.workflow }}" --limit 200 \
             --json databaseId,createdAt \

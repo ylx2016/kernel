@@ -1,0 +1,193 @@
+name: Cleanup Legacy Releases
+
+# 一次性清理工具：删掉 2021-2024 年堆积的历史 Release（连同 git tag 一起删）。
+# 只能手动触发，且默认是【演练】—— 必须在 confirm 里原样输入 DELETE 才会真删。
+#
+# 保留规则（白名单，白名单之外全删）：
+#   1. tcp.sh 里硬编码成下载直链的 4 个 tag —— 删了老脚本对应菜单项会立刻 404
+#   2. CentOS_Kernel_Cloud_<数字版本>_bbr_*  最新 keep_cloud 份
+#   3. Debian_Kernel_Cloud_<数字版本>_bbr_*  最新 keep_cloud 份
+#
+# tcpx.sh 零影响：它只查 CentOS_Kernel_Cloud / Debian_Kernel_Cloud(_arm64) 三个关键词，
+# 且 head -n 1 只取最新一个；又因为不带 per_page，本来就只看得到最新 30 条 Release,
+# 那些历史 Release 对它早就是死资产。
+#
+# ⚠ 已知副作用：tcp.sh 第 751/771 行有两条动态查询（Debian_Kernel + _latest_bbr_、
+#   Debian_Kernel + _arm64_ + _bbr_）。它们同样只看最新 30 条，而最新 30 条现在全是
+#   Cloud release，所以这两条【当前就已经命中 0 条、已经是坏的】。本清理把历史
+#   Debian_Kernel_* 彻底删掉，等于让它们从「现在坏」变成「永久坏」。README 只推荐
+#   tcpx.sh，故按需求执行。
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '真删请原样输入 DELETE；留空 = 演练(只列清单不删除)'
+        required: false
+        default: ''
+        type: string
+      keep_cloud:
+        description: '每个 Cloud 前缀各保留几份'
+        required: false
+        default: '3'
+        type: string
+      batch_limit:
+        description: '本次最多删几个(0 = 不限)，用于分批跑'
+        required: false
+        default: '0'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleanup-legacy-releases
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP_CLOUD: ${{ inputs.keep_cloud }}
+      BATCH_LIMIT: ${{ inputs.batch_limit }}
+    steps:
+      - name: Build keep / delete lists
+        run: |
+          set -euo pipefail
+
+          # ---- 白名单 1: tcp.sh 硬编码直链引用的 tag，一个都不能删 ----
+          # 对应老脚本的四个菜单项：CentOS8 xanmod lts / CentOS xanmod lts /
+          # CentOS 6.1.35 bbr / Debian xanmod lts。删掉任一个，那个菜单项立刻 404。
+          cat > keep_pinned.txt <<'EOF'
+          Centos_Kernel_5.15.81-xanmod1_lts_C8_latest_2022.12.06-1614
+          Centos_Kernel_5.15.95-xanmod1_lts_latest_2023.02.24-2159
+          Centos_Kernel_6.1.35_latest_bbr_2023.06.22-0855
+          Debian_Kernel_5.15.95-xanmod1_lts_latest_2023.02.24-2210
+          EOF
+          sed -i 's/^[[:space:]]*//; /^$/d' keep_pinned.txt
+          sort -o keep_pinned.txt keep_pinned.txt
+
+          # ---- 拉全量清单。取不到就直接失败(fail-closed) ----
+          # 绝不能拿一份残缺清单去删东西：少拉到的那部分会被误判成「不在白名单」。
+          if ! all=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 \
+                       --json tagName,publishedAt --jq '.[] | [.publishedAt, .tagName] | @tsv'); then
+            echo "错误: 无法获取 Release 列表，终止。"
+            exit 1
+          fi
+          printf '%s\n' "$all" | cut -f2 | sort > all_tags.txt
+          total=$(wc -l < all_tags.txt)
+          echo "仓库当前 Release 总数: $total"
+          if [ "$total" -lt 10 ]; then
+            echo "错误: 只取到 $total 个 Release，明显异常(疑似 API 截断)，终止。"
+            exit 1
+          fi
+
+          # ---- 白名单 2/3: 两个 Cloud 前缀各留最新 KEEP_CLOUD 份 ----
+          # ★ 这里刻意用 awk 'NR<=n' 而不是 `head -n n`：head 读够就退出、关掉管道读端，
+          #   上游 sort 会吃 EPIPE 被 SIGPIPE 打死(141)，再被 pipefail 放大成整条管道失败。
+          #   这正是 7.2.2 被重复编译的那个坑，别在这里重犯。awk 会把输入读干，安全。
+          # publishedAt 才是真发布时间；createdAt 取 tag 所指 commit 的日期，大量重复、排序不稳。
+          : > keep_cloud.txt
+          for pfx in CentOS_Kernel_Cloud_ Debian_Kernel_Cloud_; do
+            printf '%s\n' "$all" \
+              | awk -F'\t' -v p="$pfx" '$2 ~ "^" p "[0-9]+([.][0-9]+)*_bbr_"' \
+              | sort -r \
+              | awk -v n="$KEEP_CLOUD" 'NR<=n' \
+              | cut -f2 >> keep_cloud.txt
+          done
+
+          sort -u keep_pinned.txt keep_cloud.txt > keep.txt
+          comm -23 all_tags.txt keep.txt > del_all.txt
+
+          # ---- 分批：BATCH_LIMIT>0 时本次只删前 N 个，剩下的下次再跑 ----
+          if [ "${BATCH_LIMIT:-0}" -gt 0 ]; then
+            awk -v n="$BATCH_LIMIT" 'NR<=n' del_all.txt > del.txt
+          else
+            cp del_all.txt del.txt
+          fi
+          sort -o del.txt del.txt
+
+          keep_n=$(wc -l < keep.txt)
+          del_n=$(wc -l < del.txt)
+          del_total=$(wc -l < del_all.txt)
+          cloud_n=$(grep -c '_Cloud_' keep.txt || true)
+          pinned_hit=$(comm -12 keep_pinned.txt all_tags.txt | wc -l)
+
+          # ---- 安全闸门：清单不合常理就宁可什么都不做 ----
+          if [ "$cloud_n" -lt 2 ]; then
+            echo "错误: 保留清单里 Cloud release 只有 $cloud_n 个，异常，终止。"
+            exit 1
+          fi
+          if [ "$(comm -12 keep.txt del.txt | wc -l)" -ne 0 ]; then
+            echo "错误: 保留清单与删除清单有交集，终止。"
+            exit 1
+          fi
+          if [ $((keep_n + del_total)) -ne "$total" ]; then
+            echo "错误: 保留($keep_n) + 待删($del_total) != 总数($total)，清单不自洽，终止。"
+            exit 1
+          fi
+          if [ "$pinned_hit" -ne "$(wc -l < keep_pinned.txt)" ]; then
+            echo "警告: tcp.sh 硬编码的 $(wc -l < keep_pinned.txt) 个 tag 在仓库里只匹配到 $pinned_hit 个"
+            echo "      （可能之前已被删过，不影响本次清理的安全性）"
+          fi
+
+          echo
+          echo "===== 保留 $keep_n 个 ====="
+          cat keep.txt
+          echo
+          echo "===== 本次删除 $del_n 个（待删总量 $del_total）====="
+          cat del.txt
+
+          {
+            echo "## 清理清单"
+            echo "- Release 总数: **$total**"
+            echo "- 保留: **$keep_n**（$pinned_hit 个 tcp.sh 固定引用 + $cloud_n 个最新 Cloud）"
+            echo "- 本次删除: **$del_n**（待删总量 $del_total）"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry-run notice
+        if: ${{ inputs.confirm != 'DELETE' }}
+        run: |
+          echo "======================================================="
+          echo " 演练模式：以上清单只是预览，一个 Release 都没有删除。"
+          echo " 确认无误后重新手动触发，并在 confirm 里原样输入 DELETE。"
+          echo "======================================================="
+          echo '> **演练模式**：未删除任何内容。核对清单后重新触发，并在 `confirm` 填入 `DELETE`。' \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete releases and tags
+        if: ${{ inputs.confirm == 'DELETE' }}
+        run: |
+          # 刻意不用 -e：这一步的语义是「尽力删完并逐个汇报」，
+          # 单个 tag 删不掉不该中断整批，最后再统一判定成败。
+          set -uo pipefail
+          ok=0
+          fail=0
+          # ★ 用重定向而不是 `cat del.txt | while ...`：管道会把 while 丢进子 shell，
+          #   循环里累加的 ok/fail 出了循环就全丢了。
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            if gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag; then
+              ok=$((ok + 1))
+              echo "  [$ok] 已删除 release + tag: $tag"
+            else
+              fail=$((fail + 1))
+              echo "  警告: $tag 删除失败"
+            fi
+            sleep 1   # GitHub 对写操作有二级限流，间隔 1s 最稳
+          done < del.txt
+
+          echo "完成: 成功 $ok / 失败 $fail"
+          {
+            echo "## 执行结果"
+            echo "- 成功删除: **$ok**"
+            echo "- 失败: **$fail**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # 全线失败基本只有两种原因：权限不足或触发限流。必须变红提醒，别静默「成功」。
+          if [ "$ok" -eq 0 ] && [ "$fail" -gt 0 ]; then
+            echo "错误: 一个都没删成功，检查 permissions 是否为 contents: write，或是否触发 API 限流。"
+            exit 1
+          fi
