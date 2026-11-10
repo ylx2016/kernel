@@ -508,7 +508,9 @@ jobs:
             echo "错误: 安装集合缺少或重复 kernel/kernel-devel"
             exit 1
           fi
-          rpm -ivh --test --noscripts --notriggers "${images[@]}" "${devels[@]}"
+          # RPM 4.14 把 ST_RDONLY 文件系统的可用块数视为 0；这里只做预检、不安装。
+          # 忽略模拟容器的容量/inode 检查，仍检查依赖和文件冲突；真实安装不加此参数。
+          rpm -ivh --test --ignoresize --noscripts --notriggers "${images[@]}" "${devels[@]}"
           VERIFY
           # 只有最终快照通过原生 RPM 验证后才允许 artifact/Release 上传。
           echo "compile_status=success" >> "$GITHUB_ENV"

@@ -152,6 +152,42 @@ docker() { printf '%s\n' "$@" > "$TRACE"; command cat > /dev/null; }
         self.assertIn("type=bind,source=" + self.env["UPLOAD_PATH"] + ",target=/packages,readonly", args)
         self.assertNotIn("GH_TOKEN", " ".join(args))
 
+    def test_readonly_preflight_ignores_capacity_not_other_problems(self):
+        self.prepare_packages()
+        program = self.inner("Validate final RPM artifacts", "VERIFY")
+        match = re.search(r"(?ms)^images=\(.*", program)
+        self.assertIsNotNone(match, "Missing final RPM transaction program")
+        # Exercise the actual package selection and transaction command. The RPM
+        # fixture models only its documented problem filters, not native parsing.
+        prefix = r'''
+rpm() {
+    printf '%s\n' "$@" > "$TRACE"
+    local ignore_size=false ignore_deps=false replace_files=false
+    for arg in "$@"; do
+        case "$arg" in
+            --ignoresize) ignore_size=true ;;
+            --nodeps) ignore_deps=true ;;
+            --replacefiles|--force) replace_files=true ;;
+        esac
+    done
+    if [ "$ignore_size" != true ]; then
+        printf 'package needs 104MB on the / filesystem\n' >&2
+        return 2
+    fi
+    if [ "$RPM_PROBLEM" = dependency ] && [ "$ignore_deps" != true ]; then return 1; fi
+    if [ "$RPM_PROBLEM" = conflict ] && [ "$replace_files" != true ]; then return 1; fi
+    return 0
+}
+'''
+        for problem, expected in (("capacity", 0), ("dependency", 1), ("conflict", 1)):
+            with self.subTest(problem=problem):
+                self.env["RPM_PROBLEM"] = problem
+                result = self.run_shell('cd "$TEST_WORK/rpm-output/x86_64"\n' + match.group(0), prefix)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                args = self.trace.read_text().splitlines()
+                for required in ("--test", "--noscripts", "--notriggers"):
+                    self.assertIn(required, args)
+
     def test_release_targets_built_commit(self):
         self.env["UPLOAD_PATH"] = self.work.as_posix()
         result = self.run_shell(self.body("Upload Kernel to Release"),
