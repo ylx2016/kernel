@@ -34,18 +34,21 @@ gh() {
         published) ;;
         *) return 99 ;;
     esac
-    printf '%s\n' Debian_Kernel_Cloud_6.12.42_bbr_2026.11.10-1200
+    printf '%s\n' "${FIXTURE_PREFIX}6.12.42_bbr_2026.11.10-1200"
 }
 """
 
 
 class ReleaseDedupTests(unittest.TestCase):
+    workflow = WORKFLOW
+    release_prefix = "Debian_Kernel_Cloud_"
+
     @classmethod
     def setUpClass(cls):
         if BASH is None or YQ is None:
             raise RuntimeError("bash and mikefarah/yq are required")
         cls.check_script = subprocess.run(
-            [YQ, "-r", ".jobs.check_update.steps[0].run", str(WORKFLOW)],
+            [YQ, "-r", ".jobs.check_update.steps[0].run", str(cls.workflow)],
             check=True, capture_output=True, text=True, encoding="utf-8", timeout=15,
         ).stdout
 
@@ -59,7 +62,8 @@ class ReleaseDedupTests(unittest.TestCase):
             env.update(HOME=work.as_posix(), TMP=work.as_posix(),
                        TEMP=work.as_posix(), TMPDIR=work.as_posix(), LC_ALL="C.UTF-8",
                        GITHUB_OUTPUT=output.as_posix(), GITHUB_REPOSITORY="fixture/kernel",
-                       FORCE_BUILD="true" if force else "false", FIXTURE_RELEASE=release)
+                       FORCE_BUILD="true" if force else "false", FIXTURE_RELEASE=release,
+                       FIXTURE_PREFIX=self.release_prefix)
             result = subprocess.run(
                 [BASH, "--noprofile", "--norc"], input=FIXTURES + self.check_script,
                 cwd=work, env=env, capture_output=True, text=True,

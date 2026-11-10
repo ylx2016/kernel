@@ -26,6 +26,11 @@ env:
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # EL8 是用户态 ABI 下限：kernel-devel 中的辅助程序也必须在 EL8 上构建。
+  # 宿主仅负责 Docker、磁盘清理和发布，不用 Ubuntu 的 rpm/glibc 打包。
+  BUILD_IMAGE: almalinux:8
+  BUILD_CONTAINER: centos-kernel-builder
+  VERIFY_CONTAINER: centos-rpm-verifier
 
 permissions:
   contents: write
@@ -38,7 +43,7 @@ concurrency:
 
 jobs:
   check_update:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       build_needed: ${{ steps.check.outputs.build_needed }}
       kernel_ver: ${{ steps.check.outputs.kernel_ver }}
@@ -60,9 +65,14 @@ jobs:
             echo "Error: Failed to fetch kernel version from git.kernel.org."
             exit 1
           fi
+          # 输出还会用于路径、环境文件和 Release，先限定为纯数字版本号。
+          if ! [[ "$kernel_ver" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+            echo "错误: 内核版本号格式异常"
+            exit 1
+          fi
 
           echo "Latest stable kernel version is: $kernel_ver"
-          echo "kernel_ver=$kernel_ver" >> $GITHUB_OUTPUT
+          echo "kernel_ver=$kernel_ver" >> "$GITHUB_OUTPUT"
 
           # ---- 判断这个版本是否已经发布过 ----
           # ★ 绝对不要写成 `gh release list ... | grep -q ...`：
@@ -74,7 +84,8 @@ jobs:
           # 正确做法：先把输出收进变量(命令替换会把输出读干)，再对变量做匹配。
           # 另外本仓库 release 数量很大，--limit 要留足余量；取不到列表时直接失败
           # (fail-closed)，绝不能默认「没发布过」而去编译。
-          if ! released=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 \
+          # 上传中断留下的 draft 不算已发布，不能阻止自动重试。
+          if ! released=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 --exclude-drafts \
                             --json tagName --jq '.[].tagName'); then
             echo "Error: 无法获取 Release 列表，为避免重复发布，直接终止。"
             exit 1
@@ -85,23 +96,26 @@ jobs:
             echo "Kernel $kernel_ver has already been released."
             if [ "${FORCE_BUILD:-false}" == "true" ]; then
               echo "force_build=true, forcing rebuild."
-              echo "build_needed=true" >> $GITHUB_OUTPUT
+              echo "build_needed=true" >> "$GITHUB_OUTPUT"
             else
-              echo "build_needed=false" >> $GITHUB_OUTPUT
+              echo "build_needed=false" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "Kernel $kernel_ver is new. Build needed."
-            echo "build_needed=true" >> $GITHUB_OUTPUT
+            echo "build_needed=true" >> "$GITHUB_OUTPUT"
           fi
 
   build:
     needs: check_update
     if: needs.check_update.outputs.build_needed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 整个工作区会挂进构建容器，不能把 GitHub 凭据留在 .git/config。
+          persist-credentials: false
 
       - name: Free up disk space (Critical)
         run: |
@@ -113,70 +127,158 @@ jobs:
           sudo apt-get clean
           df -h
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd xz-utils wget curl aria2 rpm rsync fakeroot libdw-dev elfutils
-
-      - name: Get Kernel Version & Source
+      - name: Start AlmaLinux 8 build container
         run: |
           set -euo pipefail
-          kernel_ver="${{ needs.check_update.outputs.kernel_ver }}"
-          echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
-          echo "FILE_DATE=Kernel_CentOS_Cloud_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+          pulled=false
+          for attempt in 1 2 3; do
+            if docker pull "$BUILD_IMAGE"; then pulled=true; break; fi
+            if [ "$attempt" -lt 3 ]; then sleep 10; fi
+          done
+          [ "$pulled" = true ] || { echo "错误: 无法拉取 EL8 构建镜像"; exit 1; }
+          # 记录未运行构建代码的原始镜像 ID；验包时不能复用 builder 的可写层。
+          base_image_id=$(docker image inspect --format '{{.Id}}' "$BUILD_IMAGE")
+          [[ "$base_image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+          echo "BUILD_BASE_IMAGE_ID=$base_image_id" >> "$GITHUB_ENV"
+          # 不挂 Docker socket、不传 GitHub token、不使用 privileged。
+          docker run -d --init --name "$BUILD_CONTAINER" \
+            --security-opt no-new-privileges:true \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/work" \
+            -w /work -e TZ="$TZ" "$base_image_id" sleep infinity
 
-          # 提取主版本号，动态适配 v6.x / v7.x 的 CDN 路径
-          MAJOR_VER=$(echo $kernel_ver | cut -d. -f1)
-          TARBALL_URL="https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VER}.x/linux-${kernel_ver}.tar.xz"
-          GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
+      - name: Install Dependencies (AlmaLinux 8)
+        run: |
+          set -euo pipefail
+          docker exec -i -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            "$BUILD_CONTAINER" bash -se <<'DEPS'
+          set -euo pipefail
+          # 构建发行版看用户态，不看 uname（容器共用 Ubuntu 宿主的内核）。
+          source /etc/os-release
+          [[ "$ID" == almalinux && "$VERSION_ID" == 8.* ]] || exit 1
+          [[ "$HOST_UID" =~ ^[0-9]+$ && "$HOST_GID" =~ ^[0-9]+$ && "$HOST_UID" -gt 0 ]] || exit 1
+          dnf -y --setopt=install_weak_deps=False install dnf-plugins-core
+          dnf config-manager --set-enabled powertools
+          dnf -y --setopt=install_weak_deps=False install epel-release
+          dnf -y --setopt=install_weak_deps=False install \
+            gcc gcc-c++ make bc bison flex perl python3 python39 patch \
+            gcc-toolset-12-gcc gcc-toolset-12-gcc-c++ gcc-toolset-12-binutils \
+            rpm-build redhat-rpm-config dwarves \
+            elfutils elfutils-devel elfutils-libelf-devel openssl openssl-devel \
+            zlib-devel ncurses-devel kmod cpio tar gzip xz zstd \
+            git rsync wget curl aria2 ca-certificates \
+            shadow-utils findutils diffutils which hostname util-linux
+          dnf clean all
+          # 保留系统 Python（dnf/platform-python 使用），只给构建提供新版 python3。
+          # 同时覆盖 env python3 和 Kbuild 的 PYTHON3，避免只装了 python39 却仍跑 3.6。
+          mkdir -p /usr/local/bin
+          ln -s /usr/bin/python3.9 /usr/local/bin/python3
 
-          FETCH_METHOD="${{ github.event.inputs.source_method }}"
-          if [ -z "$FETCH_METHOD" ]; then
-            FETCH_METHOD="auto"
+          # 包管理以 root 执行，下载、解压、配置、编译均以同 UID 的普通用户执行。
+          if ! getent group "$HOST_GID" >/dev/null; then
+            groupadd -g "$HOST_GID" builder
           fi
+          useradd --no-log-init -m -u "$HOST_UID" -g "$HOST_GID" -s /bin/bash builder
+          if [ "$(id -u builder)" != "$HOST_UID" ] || [ "$(id -g builder)" != "$HOST_GID" ]; then
+            echo "错误: 构建用户 UID/GID 与宿主不一致"
+            exit 1
+          fi
+          echo "构建用户: $(id builder)"
 
+          # 厂商的 enable 脚本可能引用未设置的环境变量，仅在 source 时暂缓 nounset。
+          set +u
+          source /opt/rh/gcc-toolset-12/enable
+          set -u
+          export PATH="/usr/local/bin:$PATH" PYTHON3=/usr/bin/python3.9
+          [ "$(gcc -dumpversion)" = 12 ]
+          python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 9))'
+          [ "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.28' ]
+          python3 --version
+          gcc --version
+          ld --version
+          rpm --version
+          rpm -q glibc rpm-build gcc-toolset-12-gcc dwarves
+          # 现代 binrpm-pkg 需要这两个选项；EL8 的 RPM 4.14 支持，若镜像变化则提前失败。
+          rpm_help=$(rpmbuild --help)
+          [[ "$rpm_help" == *--build-in-place* && "$rpm_help" == *--noprep* ]]
+          DEPS
+
+      - name: Get Kernel Version & Source
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+          FETCH_METHOD_INPUT: ${{ inputs.source_method }}
+        run: |
+          set -euo pipefail
+          [[ "$KERNEL_VER" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || exit 1
+          FETCH_METHOD="${FETCH_METHOD_INPUT:-auto}"
+          case "$FETCH_METHOD" in auto|git) ;; *) echo "错误: 未知源码获取模式"; exit 1 ;; esac
+          echo "kernel_ver=$KERNEL_VER" >> "$GITHUB_ENV"
+          echo "FILE_DATE=Kernel_CentOS_Cloud_${KERNEL_VER}_$(date +"%Y%m%d%H%M")" >> "$GITHUB_ENV"
           echo "Selected fetch method: $FETCH_METHOD"
 
-          if [ "$FETCH_METHOD" = "auto" ]; then
+          docker exec -i -u builder -e HOME=/home/builder \
+            -e KERNEL_VER="$KERNEL_VER" -e FETCH_METHOD="$FETCH_METHOD" \
+            "$BUILD_CONTAINER" bash -se <<'SOURCE'
+          set -euo pipefail
+          cd /work
+          # 提取主版本号，动态适配 v6.x / v7.x 的 CDN 路径
+          MAJOR_VER=${KERNEL_VER%%.*}
+          TARBALL_URL="https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VER}.x/linux-${KERNEL_VER}.tar.xz"
+          GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
+          if [ -e "linux-${KERNEL_VER}" ] || [ -L "linux-${KERNEL_VER}" ]; then
+            echo "错误: 源码路径已存在，拒绝覆盖"
+            exit 1
+          fi
+          use_git=true
+          if [ "$FETCH_METHOD" = auto ]; then
             echo "Downloading via aria2c (16 连接并发，抗单流卡顿): $TARBALL_URL"
             # aria2c 多连接下载：cdn.kernel.org(Fastly) 偶发单流限速/卡顿(日志里 21K/s 那种)，
             # 16 条连接里某条卡住其余仍在跑，实测比 wget 单流稳且快。失败再退回 git clone。
             if aria2c -x16 -s16 -k1M --max-tries=3 --retry-wait=3 \
                  --summary-interval=0 --console-log-level=warn \
                  -o linux.tar.xz "$TARBALL_URL"; then
-              echo "Download OK. Extracting tarball..."
-              if tar -xf linux.tar.xz; then
-                rm -f linux.tar.xz
+              if tar -xf linux.tar.xz --no-same-owner --no-same-permissions; then
+                use_git=false
               else
-                echo "Warning: 解压失败(下载可能损坏)，回退 Git clone..."
-                rm -f linux.tar.xz
-                git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
+                echo "Warning: 解压失败，清理残留后回退 Git clone..."
+                rm -rf -- "linux-${KERNEL_VER}"
               fi
             else
               echo "Warning: aria2c download failed! Falling back to Git clone..."
-              rm -f linux.tar.xz
-              git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
             fi
-          else
-            echo "Manual override: Forcing Git clone from $GIT_URL..."
-            git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
+            rm -f -- linux.tar.xz linux.tar.xz.aria2
           fi
-
+          if [ "$use_git" = true ]; then
+            git clone --depth 1 --branch "v${KERNEL_VER}" "$GIT_URL" "linux-${KERNEL_VER}"
+          fi
           # 源码目录必须真的存在，否则后面 working-directory 会以一个诡异的错误失败
-          if [ ! -d "$GITHUB_WORKSPACE/linux-$kernel_ver" ]; then
-            echo "错误: 源码目录 linux-$kernel_ver 不存在，源码获取失败"
+          # 容器版改为显式 cd，并额外检查 Makefile。
+          if [ ! -d "/work/linux-${KERNEL_VER}" ] || [ ! -f "/work/linux-${KERNEL_VER}/Makefile" ]; then
+            echo "错误: 内核源码目录或 Makefile 缺失"
             exit 1
           fi
-          echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
+          SOURCE
 
       - name: Configure Kernel (CentOS/RHEL Cloud & Panel Optimized)
-        working-directory: ${{ env.KERNEL_DIR }}
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
         run: |
           set -euo pipefail
+          docker exec -i -u builder -e HOME=/home/builder -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_CONTAINER" bash -se <<'CONFIGURE'
+          set -euo pipefail
+          # docker exec 不继承上一步 shell 的 source，每次调用工具链都必须重新启用。
+          set +u
+          source /opt/rh/gcc-toolset-12/enable
+          set -u
+          export PATH="/usr/local/bin:$PATH" PYTHON3=/usr/bin/python3.9
+          export CC=gcc HOSTCC=gcc
+          [ "$(gcc -dumpversion)" = 12 ]
+          python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 9))'
+          cd "/work/linux-${KERNEL_VER}"
           make x86_64_defconfig
 
           # ---- 公共配置：与 Debian 流水线共用同一份权威来源，杜绝漂移 ----
-          bash "$GITHUB_WORKSPACE/kernel-config-common.sh" apply
+          bash /work/kernel-config-common.sh apply
 
           # ==========================================
           # CentOS 专属：原生 SELinux 安全链
@@ -189,6 +291,7 @@ jobs:
           #   1) 串里写了 bpf 却没开 CONFIG_BPF_LSM  -> 现已在公共配置中开启
           #   2) 公共配置开了 CONFIG_SECURITY_LANDLOCK，但串里没有 landlock，等于白开
           #   这里补齐 landlock 并保持 selinux 在 bpf 之前（与 RHEL 习惯一致）
+          # 注意：保留 bpf 在列表中不代表策略可用；BTF 仍按精简策略关闭。
           scripts/config --set-str CONFIG_LSM "landlock,lockdown,yama,loadpin,safesetid,integrity,selinux,bpf"
 
           # 生成最终内核配置
@@ -196,12 +299,27 @@ jobs:
 
           # ---- 关键：校验配置真的生效 ----
           # olddefconfig 会静默丢弃依赖不满足的选项，不校验就等于盲编
-          bash "$GITHUB_WORKSPACE/kernel-config-common.sh" verify centos
+          bash /work/kernel-config-common.sh verify centos
+          # 防止意外 localversion 使包版本、安装说明和文件路径不一致。
+          [ "$(make -s kernelrelease)" = "$KERNEL_VER" ]
+          CONFIGURE
 
       - name: Compile Kernel
-        working-directory: ${{ env.KERNEL_DIR }}
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
         run: |
           set -euo pipefail
+          docker exec -i -u builder -e HOME=/home/builder -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_CONTAINER" bash -se <<'BUILD'
+          set -euo pipefail
+          set +u
+          source /opt/rh/gcc-toolset-12/enable
+          set -u
+          export PATH="/usr/local/bin:$PATH" PYTHON3=/usr/bin/python3.9
+          export CC=gcc HOSTCC=gcc
+          [ "$(gcc -dumpversion)" = 12 ]
+          python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 9))'
+          cd "/work/linux-${KERNEL_VER}"
           echo "$(nproc) thread compile"
 
           # ★ 不再使用 sudo 编译：
@@ -210,81 +328,272 @@ jobs:
           #   去掉 sudo 后打包也能并行，模块 XZ 压缩这一步能快数倍。
           #   （若某天 binrpm-pkg 在并行下出现竞态，把下面的 -j$(nproc) 改回 -j1 即可）
           time make -j"$(nproc)"
-          time make -j"$(nproc)" binrpm-pkg
-
-          mkdir -p "$GITHUB_WORKSPACE/upload"
+          # 固定二进制输出目录与 .el8 release；RPM payload 的 XZ 和 .ko 的 XZ 是两回事。
+          # 必须是新目录，拒绝把残留 RPM 混入本次发布。rpmbuild 会在其中创建 x86_64/。
+          mkdir /work/rpm-output
+          time make -j"$(nproc)" binrpm-pkg \
+            RPMOPTS="--define '_rpmdir /work/rpm-output' --define 'dist .el8' --define '_binary_payload w6.xzdio' --define '_source_payload w6.xzdio'"
 
           # 提取生成的 .rpm 包。binrpm-pkg 可能输出到 ~/rpmbuild，两处都找
-          find "$GITHUB_WORKSPACE" ~/rpmbuild -type f -name "*.rpm" \
-            -exec mv -t "$GITHUB_WORKSPACE/upload/" {} + 2>/dev/null || true
-
+          # 上述为旧版行为；本版用 _rpmdir 固定输出，禁止全盘 find 或 || true 掩盖打包失败。
           # ★ 产物非空校验：
           #   原先这里以 "|| true" 结尾，找不到 rpm 也算成功，
           #   结果会发布一个【没有任何文件的空 Release】。必须显式拦住。
-          rpm_count=$(find "$GITHUB_WORKSPACE/upload" -type f -name '*.rpm' | wc -l)
-          if [ "$rpm_count" -eq 0 ]; then
-            echo "错误: 没有产出任何 .rpm 包，构建视为失败"
-            exit 1
-          fi
-          echo "已产出 ${rpm_count} 个 rpm 包:"
-          ls -lh "$GITHUB_WORKSPACE/upload/"
+          shopt -s nullglob
+          rpms=(/work/rpm-output/x86_64/*.rpm)
+          [ "${#rpms[@]}" -eq 3 ] || { echo "错误: 期望 kernel/kernel-devel/kernel-headers 三个包"; exit 1; }
+          # 这里只检查是否产出文件；最终 RPM 校验在停止构建容器并接收快照之后执行。
+          BUILD
+
+      - name: Stop builder before collecting artifacts
+        run: |
+          set -euo pipefail
+          # 强制终止容器内全部进程，包括构建命令遗留的后台进程，再从宿主接收产物。
+          # 失败就阻断发布；不能在这里用 || true。末尾另有 always() 兜底清理。
+          docker rm -f "$BUILD_CONTAINER"
+
+      - name: Collect RPM artifacts
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+        run: |
+          set -euo pipefail
+          # 发布目录在 RUNNER_TEMP，不在容器曾经可写的工作区；无需 sudo/chown。
+          upload_dir=$(mktemp -d "$RUNNER_TEMP/centos-rpm.XXXXXX")
+          python3 -I - "$GITHUB_WORKSPACE/rpm-output" "$upload_dir" "$KERNEL_VER" <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import stat
+          import sys
+
+          source, destination = map(Path, sys.argv[1:3])
+          version = sys.argv[3]
+          if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', version):
+              raise SystemExit('Invalid kernel version')
+          # 生产者已经停止：逐级拒绝链接，不 resolve 后再查，以免隐藏符号链接。
+          for directory in (source, source / 'x86_64', destination):
+              if not stat.S_ISDIR(directory.lstat().st_mode):
+                  raise SystemExit('Artifact directory must be a real directory')
+          if sorted(p.name for p in source.iterdir()) != ['x86_64'] or list(destination.iterdir()):
+              raise SystemExit('Unexpected artifact directory layout')
+          pattern = re.compile(r'(kernel|kernel-devel|kernel-headers)-' + re.escape(version)
+                               + r'-(?P<release>[0-9]+\.el8)\.x86_64\.rpm')
+          records, names, releases = [], set(), set()
+          for path in sorted((source / 'x86_64').iterdir()):
+              match = pattern.fullmatch(path.name)
+              info = path.lstat()
+              if (not match or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                      or not 0 < info.st_size < 2 * 1024**3):
+                  raise SystemExit('Invalid artifact: ' + path.name)
+              if match.group(1) in names:
+                  raise SystemExit('Duplicate RPM package')
+              names.add(match.group(1))
+              releases.add(match.group('release'))
+              records.append((path, info))
+          if (names != {'kernel', 'kernel-devel', 'kernel-headers'} or len(releases) != 1
+                  or sum(info.st_size for _, info in records) > 4 * 1024**3):
+              raise SystemExit('Incomplete or inconsistent RPM package set')
+          # 整组先验完再复制，拒绝链接/设备/FIFO/硬链接。仅创建新的宿主文件。
+          for path, before in records:
+              flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+              with os.fdopen(os.open(path, flags), 'rb') as incoming:
+                  current = os.fstat(incoming.fileno())
+                  if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                          or (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
+                          != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)):
+                      raise SystemExit('Artifact changed before copy')
+                  target = destination / path.name
+                  with target.open('xb') as outgoing:
+                      remaining = before.st_size
+                      while remaining:
+                          chunk = incoming.read(min(1024 * 1024, remaining))
+                          if not chunk:
+                              raise SystemExit('Artifact truncated during copy')
+                          outgoing.write(chunk)
+                          remaining -= len(chunk)
+                      after = os.fstat(incoming.fileno())
+                      if incoming.read(1) or (after.st_size, after.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+                          raise SystemExit('Artifact changed during copy')
+                  target.chmod(0o644)
+              print(f'{path.name}: {before.st_size} bytes')
+          PY
+          echo "UPLOAD_PATH=$upload_dir" >> "$GITHUB_ENV"
+          ls -lh "$upload_dir"
           df -h
 
-          echo "compile_status=success" >> $GITHUB_ENV
+      - name: Validate final RPM artifacts
+        timeout-minutes: 5
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+        run: |
+          set -euo pipefail
+          # 验证的正是后续上传的宿主快照；builder 已销毁，验包器也不能修改快照。
+          # 使用原始镜像，不 docker commit/复用构建层；不联网，不传 token，不执行包脚本。
+          docker run --rm --name "$VERIFY_CONTAINER" --init -i --pull never \
+            --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --pids-limit 128 --memory 1g --cpus 2 \
+            --user "$(id -u):$(id -g)" --workdir /tmp \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+            --mount "type=bind,source=$UPLOAD_PATH,target=/packages,readonly" \
+            -e HOME=/tmp -e TMPDIR=/tmp -e LC_ALL=C -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_BASE_IMAGE_ID" bash -se <<'VERIFY'
+          set -euo pipefail
+          # RPM --test 也需要事务锁；把干净镜像的数据库复制到 tmpfs，保留根文件系统只读。
+          system_db=$(command rpm --eval '%{_dbpath}')
+          mkdir /tmp/rpmdb
+          # 只复制 EL8 的持久数据库文件；不继承 root 创建的锁和 Berkeley DB 共享区。
+          for db_file in "$system_db"/*; do
+            case "${db_file##*/}" in __db.*) continue ;; esac
+            if [ -f "$db_file" ]; then
+              cp -- "$db_file" /tmp/rpmdb/
+            fi
+          done
+          rpm() { command rpm --dbpath /tmp/rpmdb "$@"; }
+          cd /packages
+          shopt -s nullglob
+          rpms=(./*.rpm)
+          if [ "${#rpms[@]}" -ne 3 ]; then
+            echo "错误: 最终快照不是完整的三个 RPM"
+            exit 1
+          fi
+          declare -A seen=()
+          for package in "${rpms[@]}"; do
+            if [ ! -f "$package" ] || [ -L "$package" ]; then
+              echo "错误: 最终 RPM 不是常规文件"
+              exit 1
+            fi
+            links=$(stat -c %h "$package")
+            if [ "$links" != 1 ]; then
+              echo "错误: 最终 RPM 有额外硬链接"
+              exit 1
+            fi
+            rpm --checksig --nosignature "$package"
+            metadata=$(rpm -qp --qf '%{NAME} %{VERSION} %{RELEASE} %{ARCH} %{PAYLOADCOMPRESSOR}\n' "$package")
+            read -r name version release arch compression <<< "$metadata"
+            if ! [[ "$version" == "$KERNEL_VER" && "$release" =~ ^[0-9]+\.el8$ && "$arch" == x86_64 && "$compression" == xz ]]; then
+              echo "错误: RPM 元数据不符合 EL8 发布约束"
+              exit 1
+            fi
+            if [ "${package##*/}" != "${name}-${version}-${release}.${arch}.rpm" ]; then
+              echo "错误: RPM 文件名与内部元数据不一致"
+              exit 1
+            fi
+            case "$name" in
+              kernel) required="/lib/modules/${KERNEL_VER}/vmlinuz" ;;
+              kernel-devel) required="/usr/src/kernels/${KERNEL_VER}/Makefile" ;;
+              kernel-headers) required=/usr/include/linux/types.h ;;
+              *) echo "错误: 意外 RPM 包名 $name"; exit 1 ;;
+            esac
+            if [ -n "${seen[$name]:-}" ]; then
+              echo "错误: 重复 RPM 包名 $name"
+              exit 1
+            fi
+            seen[$name]=1
+            files=$(rpm -qpl "$package")
+            grep -qxF "$required" <<< "$files"
+            echo "--- $metadata / dependencies ---"
+            rpm -qp --requires "$package"
+            echo '--- install scripts (inspection only, not executed) ---'
+            scripts=$(rpm -qp --scripts "$package")
+            printf '%s\n' "$scripts"
+            if [ "$name" = kernel ]; then
+              [[ "$scripts" == *kernel-install* && "$scripts" == *depmod* ]]
+            fi
+          done
+          # --test 只检查依赖和事务，不安装、不执行包的 %post。
+          # kernel-headers 是替换用户态开发头文件的包，不能加入默认安装集合。
+          images=(./kernel-"$KERNEL_VER"-*.x86_64.rpm)
+          devels=(./kernel-devel-"$KERNEL_VER"-*.x86_64.rpm)
+          if [ "${#images[@]}" -ne 1 ] || [ "${#devels[@]}" -ne 1 ]; then
+            echo "错误: 安装集合缺少或重复 kernel/kernel-devel"
+            exit 1
+          fi
+          rpm -ivh --test --noscripts --notriggers "${images[@]}" "${devels[@]}"
+          VERIFY
+          # 只有最终快照通过原生 RPM 验证后才允许 artifact/Release 上传。
+          echo "compile_status=success" >> "$GITHUB_ENV"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         if: ${{ env.compile_status == 'success' && env.UPLOAD_DIR == 'true' }}
         with:
           name: ${{ env.FILE_DATE }}
-          path: ${{ github.workspace }}/upload/
+          path: ${{ env.UPLOAD_PATH }}/
+          if-no-files-found: error
 
       - name: Generate release tag and notes
         if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
         run: |
           set -euo pipefail
-          echo "release_tag=CentOS_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
-          cat > release.txt <<EOF
-          ## CentOS / RHEL 系云内核 ${{ env.kernel_ver }}
+          kernel_ver="$KERNEL_VER"
+          echo "release_tag=CentOS_Kernel_Cloud_${kernel_ver}_bbr_$(date +"%Y.%m.%d-%H%M")" >> "$GITHUB_ENV"
+          cat > "$RUNNER_TEMP/centos-release.txt" <<EOF
+          ## CentOS / RHEL 系云内核 ${kernel_ver}（EL8+）
 
-          面向 VPS，兼容轻量 NAS、PVE、软路由。默认启用 BBR + FQ。
+          面向 RHEL / Rocky Linux / AlmaLinux 8 及以上的 VPS、轻量 NAS、软路由与 KVM 宿主。
+          默认启用 BBR + FQ；不是适用于 Debian/PVE 宿主的安装包。
 
           ### 安装
+          保留原有可启动内核；已安装相同版本自编内核时先确认包冲突，不要使用 --force 覆盖。
+
           \`\`\`bash
-          sudo rpm -ivh --force kernel-*.rpm
+          # 只安装 kernel 主包，不把 kernel-devel/kernel-headers 一起通配安装
+          sudo dnf install ./kernel-${kernel_ver}-*.x86_64.rpm
+          sudo depmod ${kernel_ver}
+          sudo dracut --force /boot/initramfs-${kernel_ver}.img ${kernel_ver}
+          # 确认引导条目存在，失败则停止，不要直接重启
+          sudo grubby --info=/boot/vmlinuz-${kernel_ver}
           # 开机默认启用 BBR + FQ(内核已内建 BBR，FQ 队列用 sysctl 开启最稳妥)
           echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" | sudo tee /etc/sysctl.d/99-bbr.conf
           sudo sysctl --system
-          sudo grubby --set-default /boot/vmlinuz-${{ env.kernel_ver }}*
+          \`\`\`
+
+          确认上述步骤成功后，再设置默认启动项并重启：
+          \`\`\`bash
+          sudo grubby --set-default /boot/vmlinuz-${kernel_ver}
           sudo reboot
           \`\`\`
+
+          需要 DKMS/外部模块时另外安装 kernel-devel-${kernel_ver} 对应 RPM，并配置 GCC Toolset 12。
+          EL8 默认 GCC 8 不一定接受当前内核的编译选项，DKMS 自动重建也需使用匹配的工具链。
+          kernel-headers 是用户态开发头文件，不是 DKMS 所需包，默认不要替换系统版本。
 
           ### 主要特性
           - 拥塞控制默认 BBR(已内建)；FQ 队列建议用上面的 sysctl 开启
           - 全云平台驱动：KVM/virtio、Xen、Hyper-V、VMware、AWS ENA/Nitro、GCP GVE
           - 容器全栈：Docker/Podman 所需 overlayfs、cgroup、netfilter NAT 全开
-          - PVE 宿主：KVM、VFIO 直通、IOMMU、OVS、VLAN、LVM Thin
+          - KVM 宿主：KVM、VFIO 直通、IOMMU、OVS、VLAN、LVM Thin
           - 防火墙：nftables + iptables + ipset + SELinux
           - 内存优化：MGLRU、DAMON、ZRAM/ZSWAP
           - 模块采用 XZ 压缩，兼容 kmod < 29 的老系统
+          - RPM payload 同样使用 XZ，包的用户态构建环境以 EL8 为下限
 
           > 构建时已自动校验关键配置项均真实生效。
+          > 编译环境：AlmaLinux 8、glibc 2.28、GCC Toolset 12、Python 3.9；BTF 关闭，不提供 BPF LSM 策略加载支持。
+          > 自编译内核未配置 Secure Boot 签名；启用 Secure Boot 的机器需要自行配置签名与信任链。
+          > RPM 事务预检不等于启动验证；目标系统仍需验证 initramfs、引导和 DKMS。未承诺 EL7 兼容。
           EOF
 
       - name: Upload Kernel to Release
+        id: release
         if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+          RELEASE_TAG: ${{ env.release_tag }}
         run: |
           set -euo pipefail
-          gh release create "${{ env.release_tag }}" \
-            "$GITHUB_WORKSPACE"/upload/* \
-            --title "CentOS Cloud Kernel ${{ env.kernel_ver }} (BBR)" \
-            --notes-file release.txt
+          gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            "$UPLOAD_PATH"/*.rpm \
+            --title "CentOS Cloud Kernel ${KERNEL_VER} (BBR, EL8+)" \
+            --notes-file "$RUNNER_TEMP/centos-release.txt"
 
       # 只清理本流水线自己产出的 Release，保留最新 3 份，Release 和 tag 一起删
       - name: Prune old releases
-        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+        if: ${{ steps.release.outcome == 'success' && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PREFIX: CentOS_Kernel_Cloud_
@@ -294,7 +603,7 @@ jobs:
           # ★ 同样不用 `gh ... | grep -q` 这种会提前退出的管道：读端一关，gh 就吃 EPIPE
           #   被 SIGPIPE 打死(141)，pipefail 再把整条管道判失败。下面的 awk/sort/tail/cut
           #   都会把输入读干，不会触发。取不到列表就跳过清理——产物已发布成功，不该让 job 变红。
-          if ! all=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 \
+          if ! all=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 --exclude-drafts \
                        --json tagName,publishedAt --jq '.[] | [.publishedAt, .tagName] | @tsv'); then
             echo "警告: 无法获取 Release 列表，跳过本次清理（本次发布已成功，不影响产物）"
             exit 0
@@ -333,17 +642,23 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_WORKFLOW: ${{ github.workflow }}
         run: |
           set -euo pipefail
           # 保留最近 3 次运行。注意代价：出问题时日志会很快被自己删掉，
           # 这次定位 7.2.2 重复编译就因为相关运行记录已被清掉而断过线索
           # —— 真出问题要当天就看日志、必要时先下载 artifact 留证。
           echo "保留最近 3 次运行，其余删除（进行中的当前 run 会被自动跳过）"
-          gh run list --workflow "${{ github.workflow }}" --limit 200 \
+          gh run list -R "$GITHUB_REPOSITORY" --workflow "$GH_WORKFLOW" --limit 200 \
             --json databaseId,createdAt \
             --jq 'sort_by(.createdAt) | reverse | .[3:] | .[].databaseId' \
             | while read -r id; do
                 [ -n "$id" ] || continue
                 echo "  删除 run: $id"
-                gh run delete "$id" || true
+                gh run delete "$id" -R "$GITHUB_REPOSITORY" || true
               done
+
+      - name: Cleanup containers
+        if: ${{ always() }}
+        # 验包超时/取消时也清理其容器，不能只依赖前台 docker run 的 --rm。
+        run: docker rm -f "$BUILD_CONTAINER" "$VERIFY_CONTAINER" 2>/dev/null || true
