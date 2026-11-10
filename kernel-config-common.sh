@@ -383,6 +383,8 @@ apply_common_config() {
     scripts/config --enable CONFIG_NLS_UTF8
 
     # 3. K3s / 负载均衡基础
+    # kube-proxy 的 iptables 多后端 Service 使用 -m statistic 做概率分流。
+    scripts/config --enable CONFIG_NETFILTER_XT_MATCH_STATISTIC
     scripts/config --enable CONFIG_IP_VS
     scripts/config --enable CONFIG_IP_VS_PROTO_TCP
     scripts/config --enable CONFIG_IP_VS_PROTO_UDP
@@ -773,6 +775,7 @@ verify_config() {
     _check_critical CONFIG_NF_TABLES             "nftables(firewalld/UFW 依赖)"
     _check_critical CONFIG_IP_NF_IPTABLES        "iptables 框架"
     _check_critical CONFIG_NETFILTER_XT_TARGET_MASQUERADE "Docker 端口映射"
+    _check_critical CONFIG_NETFILTER_XT_MATCH_STATISTIC "kube-proxy 多后端 Service 概率分流"
     # 容器与 systemd
     _check_critical CONFIG_OVERLAY_FS            "Docker 存储驱动"
     _check_critical CONFIG_NAMESPACES            "容器命名空间"

@@ -4,28 +4,36 @@ on:
   workflow_dispatch:
     inputs:
       source_method:
-        description: 'Source download method (源码获取方式)'
+        description: "Source download method (源码获取方式)"
         required: true
-        default: 'auto'
+        default: "auto"
         type: choice
         options:
           - auto
           - git
       force_build:
-        description: '已发布过也强制重新编译 (force rebuild even if released)'
+        description: "已发布过也强制重新编译 (force rebuild even if released)"
         required: false
         default: false
         type: boolean
   schedule:
     # 避开 UTC 整点：'0 20' 这种整点是 GitHub 定时任务排队高峰，
     # 实测被推迟 3.5h / 7.9h 才真正开跑，挪到非整点能明显改善
-    - cron: '23 19 * * 1,4'
+    - cron: "23 19 * * 1,4"
 
 env:
   UPLOAD_DIR: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # ★ 编译环境固定在 Debian 12(bookworm) 容器里，不跟随 runner 镜像漂移：
+  #   ubuntu-22.04 已于 2026-09-17 弃用、2027-04-17 退役；ubuntu-latest 又正在
+  #   从 24.04 迁往 26.04（gcc 15、且 main 里不再有 libncurses5-dev）。
+  #   容器内工具链为 gcc 12.2 + binutils 2.40 + debhelper 13.11，与 Debian 目标
+  #   发行版一致，bookworm 支持到 2028-06。
+  #   宿主仅提供磁盘、docker 和发布所需的 gh，编译本身一律在容器里做。
+  BUILD_IMAGE: debian:12-slim
+  BUILD_CONTAINER: kernel-builder
 
 permissions:
   contents: write
@@ -38,7 +46,9 @@ concurrency:
 
 jobs:
   check_update:
-    runs-on: ubuntu-latest
+    # ★ 固定版本标签，不用 ubuntu-latest：latest 正在迁往 26.04，版本判断这一步
+    #   只用到 git 与 gh，没有理由把它暴露在镜像漂移下。
+    runs-on: ubuntu-24.04
     outputs:
       build_needed: ${{ steps.check.outputs.build_needed }}
       kernel_ver: ${{ steps.check.outputs.kernel_ver }}
@@ -61,6 +71,15 @@ jobs:
             exit 1
           fi
 
+          # ★ 版本号必须严格形如 7 / 7.1 / 7.1.4。
+          #   上面 awk 只保证「整行以数字结尾」，而 -F 切出来的 $2 实际可比版本号宽，
+          #   篡改上游响应即可让它带出 $(...) 之类的内容；该值随后被拼进 GITHUB_ENV、
+          #   release tag 和 run 脚本，等于宿主 shell 执行面。这里用白名单正则收口。
+          if ! [[ "$kernel_ver" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "错误: 版本号格式异常，疑似上游响应被篡改: $kernel_ver"
+            exit 1
+          fi
+
           echo "Latest stable kernel version is: $kernel_ver"
           echo "kernel_ver=$kernel_ver" >> $GITHUB_OUTPUT
 
@@ -74,7 +93,8 @@ jobs:
           # 正确做法：先把输出收进变量(命令替换会把输出读干)，再对变量做匹配。
           # 另外本仓库 release 数量很大，--limit 要留足余量；取不到列表时直接失败
           # (fail-closed)，绝不能默认「没发布过」而去编译。
-          if ! released=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 \
+          # 草稿不算已发布：上传中断后残留的 draft 不能阻止后续自动重试。
+          if ! released=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 --exclude-drafts \
                             --json tagName --jq '.[].tagName'); then
             echo "Error: 无法获取 Release 列表，为避免重复发布，直接终止。"
             exit 1
@@ -98,11 +118,19 @@ jobs:
     needs: check_update
     # 只有当 check_update 判定需要编译时才执行此 Job
     if: needs.check_update.outputs.build_needed == 'true'
-    runs-on: ubuntu-latest
+    # 宿主仍是实体 runner：清理磁盘、docker、gh 发布都必须在宿主做
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # ★ 不要把仓库凭据留在 .git/config 里：
+          #   workspace 会整体以读写方式挂进编译容器（容器内以 root 跑上游内核源码的
+          #   Makefile），persist-credentials=true 会把 contents:write 的 token 写进
+          #   $GITHUB_WORKSPACE/.git/config 的 http.extraheader。本 job 全程不用 git 推送，
+          #   直接关掉。
+          persist-credentials: false
 
       - name: Free up disk space (Critical)
         run: |
@@ -114,110 +142,232 @@ jobs:
           sudo apt-get clean
           df -h
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc kmod cpio flex libncurses5-dev libelf-dev libssl-dev dwarves bison zstd xz-utils wget curl aria2 debhelper libdw-dev rsync fakeroot
-
-      - name: Get Kernel Version & Source
+      # ★ 为什么用「宿主 + 常驻容器」而不是 job 级 container:：
+      #   job 级 container 会把所有 step 塞进容器，导致上面那段磁盘清理删不到东西
+      #   （容器里没有 /usr/share/dotnet 等），也无法 docker image prune（无 dockerd）。
+      #   内核源码树 + 中间产物要 25GB 以上，宿主磁盘必须真的腾出来。
+      - name: Start Debian 12 build container
         run: |
           set -euo pipefail
-          kernel_ver="${{ needs.check_update.outputs.kernel_ver }}"
+          ok=false
+          for i in 1 2 3; do
+            if docker pull "$BUILD_IMAGE"; then ok=true; break; fi
+            echo "警告: docker pull 第 ${i} 次失败，10 秒后重试"
+            sleep 10
+          done
+          if [ "$ok" != "true" ]; then
+            echo "错误: 无法拉取 $BUILD_IMAGE"
+            exit 1
+          fi
+
+          docker rm -f "$BUILD_CONTAINER" >/dev/null 2>&1 || true
+          docker run -d --name "$BUILD_CONTAINER" \
+            --init \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            -e TZ="$TZ" \
+            -e DEBIAN_FRONTEND=noninteractive \
+            "$BUILD_IMAGE" sleep infinity
+
+          echo "容器内 Debian 版本: $(docker exec "$BUILD_CONTAINER" cat /etc/debian_version)"
+          df -h
+
+      - name: Install Dependencies (Debian 12)
+        run: |
+          docker exec \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            "$BUILD_CONTAINER" bash -c '
+            set -euo pipefail
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              build-essential bc bison flex cpio kmod perl python3 passwd \
+              libncurses-dev libelf-dev libssl-dev libdw-dev zlib1g-dev \
+              dwarves zstd xz-utils wget curl aria2 rsync ca-certificates \
+              git dpkg-dev debhelper fakeroot
+            rm -rf /var/lib/apt/lists/*
+
+            # ★ 建一个与宿主 runner 同 uid/gid 的构建用户：
+            #   apt 必须以 root 装包，但编译和产物要给非 root 跑 —— 容器里跑的
+            #   是上游内核源码的 Makefile，而 /work 是宿主 workspace 的读写挂载。
+            #   uid 对齐后 /work 天然可写，产物属主也直接就是 runner 用户。
+            groupadd -g "$HOST_GID" builder
+            useradd -m -u "$HOST_UID" -g "$HOST_GID" -s /bin/bash builder
+            if [ "$(id -u builder)" != "$HOST_UID" ]; then
+              echo "错误: 构建用户 uid 与宿主不一致"
+              exit 1
+            fi
+            echo "构建用户: $(id builder)"
+
+            # 关键工具链版本打点：以后排查「换镜像导致行为变化」时一眼可见
+            echo "--- toolchain ---"
+            gcc --version | head -n 1
+            ld --version | head -n 1
+            make --version | head -n 1
+            # 注意 \$ 转义：外层已是单引号，内层 bash 的"双引号"里若不转义，
+            # ${Version} 会被内层 shell 当成未定义变量（set -u 直接报错）。
+            dpkg-query -W -f="debhelper=\${Version}\n" debhelper
+            dpkg-query -W -f="dwarves(pahole)=\${Version}\n" dwarves
+
+            # ★ 说明：dwarves 保留安装仅为将来可能重新打开 CONFIG_DEBUG_INFO_BTF；
+            #   当前 kernel-config-common.sh 明确 --disable DEBUG_INFO_BTF，
+            #   pahole 版本不参与构建，bookworm 的 1.22 不会成为阻塞项。
+          '
+
+      - name: Get Kernel Version & Source
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+          FETCH_METHOD_INPUT: ${{ github.event.inputs.source_method }}
+        run: |
+          set -euo pipefail
+          kernel_ver="$KERNEL_VER"
+          # 二次校验（check_update 已验过一遍）：这个值还要拼进 GITHUB_ENV 与 release tag，
+          # 不信任上游 job 的产出，本步骤自己再卡一次白名单。
+          if ! [[ "$kernel_ver" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "错误: kernel_ver 为空或格式异常: '$kernel_ver'"
+            exit 1
+          fi
+          # 这两个变量必须在宿主写进 GITHUB_ENV：容器内没有 /home/runner/work/_temp
           echo "kernel_ver=$kernel_ver" >> $GITHUB_ENV
           echo "FILE_DATE=Kernel_Debian_Cloud_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-          # 提取主版本号 (例如 7.1.4 提取出 7，用于拼接 CDN 路径 v7.x)
-          MAJOR_VER=$(echo $kernel_ver | cut -d. -f1)
-          TARBALL_URL="https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VER}.x/linux-${kernel_ver}.tar.xz"
-          GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
-
           # 判断获取模式 (定时任务触发时 inputs 为空，默认设为 auto)
-          FETCH_METHOD="${{ github.event.inputs.source_method }}"
+          FETCH_METHOD="${FETCH_METHOD_INPUT:-auto}"
           if [ -z "$FETCH_METHOD" ]; then
             FETCH_METHOD="auto"
           fi
-
           echo "Selected fetch method: $FETCH_METHOD"
 
-          if [ "$FETCH_METHOD" = "auto" ]; then
-            echo "Downloading via aria2c (16 连接并发，抗单流卡顿): $TARBALL_URL"
-            # aria2c 多连接下载：cdn.kernel.org(Fastly) 偶发单流限速/卡顿(日志里 21K/s 那种)，
-            # 16 条连接里某条卡住其余仍在跑，实测比 wget 单流稳且快。失败再退回 git clone。
-            if aria2c -x16 -s16 -k1M --max-tries=3 --retry-wait=3 \
-                 --summary-interval=0 --console-log-level=warn \
-                 -o linux.tar.xz "$TARBALL_URL"; then
-              echo "Download OK. Extracting tarball..."
-              if tar -xf linux.tar.xz; then
-                rm -f linux.tar.xz
-              else
-                echo "Warning: 解压失败(下载可能损坏)，回退 Git clone..."
-                rm -f linux.tar.xz
-                git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
-              fi
-            else
-              echo "Warning: aria2c download failed! Falling back to Git clone..."
-              rm -f linux.tar.xz
-              git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
-            fi
-          else
-            echo "Manual override: Forcing Git clone from $GIT_URL..."
-            git clone --depth 1 --branch "v${kernel_ver}" "$GIT_URL" linux-$kernel_ver
-          fi
+          docker exec \
+            -u builder \
+            -e HOME=/home/builder \
+            -e KERNEL_VER="$kernel_ver" \
+            -e FETCH_METHOD="$FETCH_METHOD" \
+            "$BUILD_CONTAINER" bash -c '
+              set -euo pipefail
+              # ★ 必须 cd 到挂载点 /work：bindeb-pkg 把 .deb 生成在源码目录的
+              #   【上一级】，只有源码在 /work/linux-X 时上一级才是工作区根目录。
+              #   若把源码直接挂成 /work 而上一级在容器临时层里，.deb 会随容器消失。
+              cd /work
 
-          # 源码目录必须真的存在，否则后面 working-directory 会以一个诡异的错误失败
-          if [ ! -d "$GITHUB_WORKSPACE/linux-$kernel_ver" ]; then
-            echo "错误: 源码目录 linux-$kernel_ver 不存在，源码获取失败"
-            exit 1
-          fi
-          echo "KERNEL_DIR=$GITHUB_WORKSPACE/linux-$kernel_ver" >> $GITHUB_ENV
+              # 提取主版本号 (例如 7.1.4 提取出 7，用于拼接 CDN 路径 v7.x)
+              MAJOR_VER=$(echo "$KERNEL_VER" | cut -d. -f1)
+              TARBALL_URL="https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VER}.x/linux-${KERNEL_VER}.tar.xz"
+              GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
+
+              fetch_tarball() {
+                # aria2c 多连接下载：cdn.kernel.org(Fastly) 偶发单流限速/卡顿(日志里 21K/s 那种)，
+                # 16 条连接里某条卡住其余仍在跑，实测比 wget 单流稳且快。失败再退回 git clone。
+                aria2c -x16 -s16 -k1M --max-tries=3 --retry-wait=3 \
+                  --summary-interval=0 --console-log-level=warn \
+                  -o linux.tar.xz "$TARBALL_URL"
+              }
+
+              if [ "$FETCH_METHOD" = "auto" ]; then
+                echo "Downloading via aria2c (16 连接并发，抗单流卡顿): $TARBALL_URL"
+                if fetch_tarball; then
+                  echo "Download OK. Extracting tarball..."
+                  # --no-same-owner/--no-same-permissions：tarball 里的属主/权限位
+                  # 一律不还原，避免上游包通过元数据在容器内造出奇怪的文件。
+                  if tar -xf linux.tar.xz --no-same-owner --no-same-permissions; then
+                    rm -f linux.tar.xz
+                  else
+                    echo "Warning: 解压失败(下载可能损坏)，回退 Git clone..."
+                    rm -f linux.tar.xz
+                    rm -rf "linux-${KERNEL_VER}"
+                    git clone --depth 1 --branch "v${KERNEL_VER}" "$GIT_URL" "linux-${KERNEL_VER}"
+                  fi
+                else
+                  echo "Warning: aria2c download failed! Falling back to Git clone..."
+                  rm -f linux.tar.xz
+                  git clone --depth 1 --branch "v${KERNEL_VER}" "$GIT_URL" "linux-${KERNEL_VER}"
+                fi
+              else
+                echo "Manual override: Forcing Git clone from $GIT_URL..."
+                git clone --depth 1 --branch "v${KERNEL_VER}" "$GIT_URL" "linux-${KERNEL_VER}"
+              fi
+
+              # 源码目录必须真的存在，否则后面 cd 会以一个诡异的错误失败
+              if [ ! -d "/work/linux-${KERNEL_VER}" ]; then
+                echo "错误: 源码目录 linux-${KERNEL_VER} 不存在，源码获取失败"
+                exit 1
+              fi
+              echo "内核源码就绪: $(du -sh "/work/linux-${KERNEL_VER}" | cut -f1)"
+            '
 
       - name: Configure Kernel (Debian/Ubuntu Cloud & Panel Optimized)
-        working-directory: ${{ env.KERNEL_DIR }}
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
         run: |
-          set -euo pipefail
-          make x86_64_defconfig
+          docker exec \
+            -u builder \
+            -e HOME=/home/builder \
+            -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_CONTAINER" bash -c '
+              set -euo pipefail
+              cd "/work/linux-${KERNEL_VER}"
 
-          # ---- 公共配置：与 CentOS 流水线共用同一份权威来源，杜绝漂移 ----
-          bash "$GITHUB_WORKSPACE/kernel-config-common.sh" apply
+              make x86_64_defconfig
 
-          # ==========================================
-          # Debian 专属：原生 AppArmor 安全链
-          # 这是与 CentOS 唯一真正需要区分的地方
-          # ==========================================
-          scripts/config --enable CONFIG_SECURITY_APPARMOR
-          scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM
-          scripts/config --enable CONFIG_DEFAULT_SECURITY_APPARMOR
-          scripts/config --enable CONFIG_SECURITY_APPARMOR_HASH    # 加快开机策略加载
-          # 严格匹配 Debian 12 默认的 LSM 加载顺序
-          scripts/config --set-str CONFIG_LSM "landlock,lockdown,yama,loadpin,safesetid,integrity,apparmor,bpf"
+              # ---- 公共配置：与 CentOS 流水线共用同一份权威来源，杜绝漂移 ----
+              bash /work/kernel-config-common.sh apply
 
-          # 生成最终内核配置
-          make olddefconfig
+              # ==========================================
+              # Debian 专属：原生 AppArmor 安全链
+              # 这是与 CentOS 唯一真正需要区分的地方
+              # ==========================================
+              scripts/config --enable CONFIG_SECURITY_APPARMOR
+              scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM
+              scripts/config --enable CONFIG_DEFAULT_SECURITY_APPARMOR
+              scripts/config --enable CONFIG_SECURITY_APPARMOR_HASH    # 加快开机策略加载
+              # 严格匹配 Debian 12 默认的 LSM 加载顺序
+              scripts/config --set-str CONFIG_LSM "landlock,lockdown,yama,loadpin,safesetid,integrity,apparmor,bpf"
 
-          # ---- 关键：校验配置真的生效 ----
-          # olddefconfig 会静默丢弃依赖不满足的选项，不校验就等于盲编
-          bash "$GITHUB_WORKSPACE/kernel-config-common.sh" verify debian
+              # 生成最终内核配置
+              make olddefconfig
+
+              # ---- 关键：校验配置真的生效 ----
+              # olddefconfig 会静默丢弃依赖不满足的选项，不校验就等于盲编
+              bash /work/kernel-config-common.sh verify debian
+            '
 
       - name: Compile Kernel
-        working-directory: ${{ env.KERNEL_DIR }}
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
         run: |
           set -euo pipefail
-          echo "$(nproc) thread compile"
+          docker exec \
+            -u builder \
+            -e HOME=/home/builder \
+            -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_CONTAINER" bash -c '
+              set -euo pipefail
+              cd "/work/linux-${KERNEL_VER}"
+              echo "$(nproc) thread compile"
 
-          # ★ 不再使用 sudo 编译：
-          #   runner 用户本就拥有整个 workspace，sudo 只会产生 root 属主的文件，
-          #   这正是原先「Permission denied」以及被迫用 -j1 打包的根因。
-          #   去掉 sudo 后打包也能并行，模块 XZ 压缩这一步能快数倍。
-          #   （若某天 bindeb-pkg 在并行下出现竞态，把下面的 -j$(nproc) 改回 -j1 即可）
-          time make -j"$(nproc)"
-          time make -j"$(nproc)" bindeb-pkg KDEB_COMPRESS=xz
+              # ★ 以非 root 的 builder 用户编译（uid 与宿主 runner 一致）：
+              #   容器里执行的是上游内核源码的 Makefile，而 /work 是宿主 workspace 的
+              #   读写挂载，没必要给它 root。也正因为不用 root，才不需要 sudo ——
+              #   原先那次「Permission denied 被迫 -j1 打包」的根因就是 sudo 造出的
+              #   root 属主文件，这里从根上没有这个问题。
+              #   （若某天 bindeb-pkg 在并行下出现竞态，把下面的 -j$(nproc) 改回 -j1 即可）
+              time make -j"$(nproc)"
+              time make -j"$(nproc)" bindeb-pkg KDEB_COMPRESS=xz
 
-          mkdir -p "$GITHUB_WORKSPACE/upload"
+              mkdir -p /work/upload
 
-          # bindeb-pkg 把 .deb 生成在源码目录的【上一级】
-          mv "$GITHUB_WORKSPACE"/*.deb "$GITHUB_WORKSPACE/upload/" 2>/dev/null || true
+              # bindeb-pkg 把 .deb 生成在源码目录的【上一级】= /work
+              shopt -s nullglob
+              debs=(/work/*.deb)
+              if [ "${#debs[@]}" -eq 0 ]; then
+                echo "错误: bindeb-pkg 没有产出任何 .deb 包，构建视为失败"
+                exit 1
+              fi
+              mv "${debs[@]}" /work/upload/
+              ls -lh /work/upload/
+            '
 
-          # ★ 产物非空校验：防止发布一个没有任何文件的空 Release
+          # ★ 产物非空校验（宿主侧再验一次）：防止发布一个没有任何文件的空 Release
           deb_count=$(find "$GITHUB_WORKSPACE/upload" -type f -name '*.deb' | wc -l)
           if [ "$deb_count" -eq 0 ]; then
             echo "错误: 没有产出任何 .deb 包，构建视为失败"
@@ -228,6 +378,21 @@ jobs:
           df -h
 
           echo "compile_status=success" >> $GITHUB_ENV
+
+      # 编译已改由非 root 的 builder（uid/gid 与宿主 runner 相同）执行，产物属主天然正确；
+      # 这一步留作兜底（例如将来某步误用 root 重建了 upload/），保证 artifact 归档与
+      # Release 上传不会撞上 Permission denied。
+      - name: Fix ownership of build outputs
+        if: ${{ always() }}
+        run: |
+          # ★ 只处理 upload/ 自身与其下第一层的常规文件/目录，不用 chown -R：
+          #   upload/ 里的内容是容器（root、跑不可信源码）创建的，若出现
+          #   upload/xxx -> /etc/shadow 这类符号链接，-R 递归会跟进去改目标属主。
+          #   -h 进一步保证即便匹配到链接也只改链接自身。
+          if [ -d "$GITHUB_WORKSPACE/upload" ]; then
+            sudo find "$GITHUB_WORKSPACE/upload" -maxdepth 1 \( -type f -o -type d \) \
+              -exec chown -h "$(id -u):$(id -g)" {} +
+          fi
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -261,11 +426,13 @@ jobs:
           - 全云平台驱动：KVM/virtio、Xen、Hyper-V、VMware、AWS ENA/Nitro、GCP GVE
           - 容器全栈：Docker/Podman 所需 overlayfs、cgroup、netfilter NAT 全开
           - PVE 宿主：KVM、VFIO 直通、IOMMU、OVS、VLAN、LVM Thin
-          - 防火墙：nftables + iptables + ipset + AppArmor + BPF LSM
+          - 防火墙：nftables + iptables + ipset + AppArmor
           - 内存优化：MGLRU、DAMON、ZRAM/ZSWAP
           - 模块采用 XZ 压缩，兼容 Debian 10/11 等 kmod < 29 的系统
 
           > 构建时已自动校验关键配置项均真实生效。
+          > 为保持精简，未启用 BTF，不提供 BPF LSM 策略加载支持；AppArmor 不受影响。
+          > 编译环境：Debian 12 (bookworm) 容器，gcc 12.2 / binutils 2.40。
           EOF
 
       - name: Upload Kernel to Release
@@ -344,3 +511,7 @@ jobs:
                 echo "  删除 run: $id"
                 gh run delete "$id" || true
               done
+
+      - name: Stop build container
+        if: ${{ always() }}
+        run: docker rm -f "$BUILD_CONTAINER" || true
