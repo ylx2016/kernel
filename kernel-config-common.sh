@@ -3,9 +3,9 @@
 # 云内核公共配置（CentOS / Debian 两条流水线共用的唯一权威来源）
 #
 # 用法（cwd 必须是内核源码目录）：
-#   bash kernel-config-common.sh apply           # 套用公共配置
-#   bash kernel-config-common.sh verify centos   # olddefconfig 之后校验
-#   bash kernel-config-common.sh verify debian
+#   bash kernel-config-common.sh apply [x86_64|arm64]       # 默认 x86_64
+#   bash kernel-config-common.sh verify centos [x86_64]     # olddefconfig 之后校验
+#   bash kernel-config-common.sh verify debian [x86_64|arm64]
 #
 # 仓库放置路径：仓库根目录 kernel-config-common.sh
 # 两个 workflow 通过 $GITHUB_WORKSPACE/kernel-config-common.sh 调用。
@@ -20,7 +20,34 @@
 set -euo pipefail
 
 apply_common_config() {
-    echo "==> 套用公共内核配置"
+    local arch="${1:-x86_64}"
+    case "$arch" in
+        x86_64) ;;
+        arm64)
+            if ! grep -qx 'CONFIG_ARM64=y' .config; then
+                echo "错误: arm64 profile 必须在 ARM64 defconfig 上应用"
+                exit 1
+            fi
+            ;;
+        *) echo "错误: 未知架构 '$arch'"; exit 1 ;;
+    esac
+    echo "==> 套用公共内核配置 (arch=$arch)"
+
+    if [ "$arch" = arm64 ]; then
+        # 通用云/服务器 profile，不代表所有 ARM 板卡都使用 ACPI 或同一种固件。
+        scripts/config --disable CONFIG_ARM64_16K_PAGES
+        scripts/config --disable CONFIG_ARM64_64K_PAGES
+        local key
+        for key in CONFIG_ARM64_4K_PAGES CONFIG_EFI CONFIG_EFI_STUB CONFIG_ACPI \
+                   CONFIG_PCI CONFIG_PCI_HOST_GENERIC CONFIG_VIRTIO_MMIO \
+                   CONFIG_SERIAL_AMBA_PL011 CONFIG_SERIAL_AMBA_PL011_CONSOLE \
+                   CONFIG_ARM_GIC_V3 CONFIG_ARM_GIC_V3_ITS CONFIG_ARM_ARCH_TIMER \
+                   CONFIG_ARM_PSCI_FW CONFIG_IOMMU_SUPPORT CONFIG_ARM_SMMU CONFIG_ARM_SMMU_V3 \
+                   CONFIG_TCP_CONG_ADVANCED CONFIG_NET_VENDOR_GOOGLE; do
+            scripts/config --enable "$key"
+        done
+        # 保留 defconfig 的 CONFIG_COMPAT；未选择禁用 32 位用户态。
+    fi
 
     # ==========================================
     # 模块一：云服务器底层驱动与系统熵池 (通配各类云主机)
@@ -46,8 +73,10 @@ apply_common_config() {
     scripts/config --enable CONFIG_HYPERV_STORAGE
     scripts/config --enable CONFIG_VMWARE_PVSCSI
     scripts/config --enable CONFIG_XEN
-    scripts/config --enable CONFIG_XEN_PVH
-    scripts/config --enable CONFIG_XEN_PVHVM
+    if [ "$arch" = x86_64 ]; then
+        scripts/config --enable CONFIG_XEN_PVH
+        scripts/config --enable CONFIG_XEN_PVHVM
+    fi
     scripts/config --enable CONFIG_XEN_BLKDEV_FRONTEND
     scripts/config --enable CONFIG_VIRTIO_NET
     scripts/config --enable CONFIG_VMXNET3
@@ -393,6 +422,7 @@ apply_common_config() {
     scripts/config --enable CONFIG_IP_VS_SH
     scripts/config --enable CONFIG_NETFILTER_XT_MATCH_IPVS
 
+    if [ "$arch" = x86_64 ]; then
     # ==========================================
     # 模块十：x86_64 硬件加速全家桶 (Intel + AMD 双平台通吃)
     # ==========================================
@@ -422,6 +452,7 @@ apply_common_config() {
     #   不是字符串。原先 --set-str "amd-pstate-epp" 触发 kconfig "invalid value" 报错。
     #   X86_AMD_PSTATE=y 时 Kconfig 默认已是 3(active=EPP)，无需手工设置，故直接移除。
     scripts/config --enable CONFIG_SENSORS_K10TEMP
+    fi
 
     # ==========================================
     # 模块十一：PVE 宿主机 / Hypervisor 核心组件
@@ -429,21 +460,25 @@ apply_common_config() {
     # 1. KVM 虚拟化宿主端支持
     scripts/config --enable CONFIG_VIRTUALIZATION
     scripts/config --enable CONFIG_KVM
-    scripts/config --enable CONFIG_KVM_INTEL
-    scripts/config --enable CONFIG_KVM_AMD
+    if [ "$arch" = x86_64 ]; then
+        scripts/config --enable CONFIG_KVM_INTEL
+        scripts/config --enable CONFIG_KVM_AMD
+    fi
     scripts/config --enable CONFIG_VHOST_NET
     scripts/config --enable CONFIG_VHOST_VSOCK
     scripts/config --enable CONFIG_VHOST_SCSI
 
     # 2. IOMMU 与 VFIO 硬件直通
     scripts/config --enable CONFIG_IOMMU_SUPPORT
-    scripts/config --enable CONFIG_INTEL_IOMMU
-    scripts/config --enable CONFIG_INTEL_IOMMU_DEFAULT_ON
-    scripts/config --enable CONFIG_AMD_IOMMU
+    if [ "$arch" = x86_64 ]; then
+        scripts/config --enable CONFIG_INTEL_IOMMU
+        scripts/config --enable CONFIG_INTEL_IOMMU_DEFAULT_ON
+        scripts/config --enable CONFIG_AMD_IOMMU
+        scripts/config --enable CONFIG_IRQ_REMAP
+    fi
     scripts/config --enable CONFIG_VFIO
     scripts/config --enable CONFIG_VFIO_PCI
     scripts/config --enable CONFIG_VFIO_IOMMU_TYPE1
-    scripts/config --enable CONFIG_IRQ_REMAP
 
     # 3. PVE 高级网络桥接、VLAN 与 OVS
     scripts/config --enable CONFIG_BONDING              # 网卡聚合/双线汇聚
@@ -513,9 +548,11 @@ apply_common_config() {
     scripts/config --enable CONFIG_ZRAM_BACKEND_LZO
 
     # 2. Intel CPU 对称支持
-    scripts/config --enable CONFIG_CPU_SUP_INTEL
-    scripts/config --enable CONFIG_X86_INTEL_PSTATE
-    scripts/config --enable CONFIG_MICROCODE            # 加载 CPU 微码修复漏洞(新内核已合并 Intel/AMD)
+    if [ "$arch" = x86_64 ]; then
+        scripts/config --enable CONFIG_CPU_SUP_INTEL
+        scripts/config --enable CONFIG_X86_INTEL_PSTATE
+        scripts/config --enable CONFIG_MICROCODE            # 加载 CPU 微码修复漏洞(新内核已合并 Intel/AMD)
+    fi
 
     # 3. TCP Fast Open (降低 Nginx/LiteSpeed 握手延迟)
     scripts/config --enable CONFIG_TCP_FASTOPEN
@@ -646,6 +683,9 @@ apply_common_config() {
     scripts/config --enable CONFIG_DEBUG_INFO_NONE
     scripts/config --disable CONFIG_DEBUG_INFO_DWARF4
     scripts/config --disable CONFIG_DEBUG_INFO_DWARF5
+    # arm64 defconfig 默认选择 TOOLCHAIN_DEFAULT，必须一并关闭，避免覆盖 NONE。
+    scripts/config --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT
+    scripts/config --disable CONFIG_DEBUG_INFO_REDUCED
     scripts/config --disable CONFIG_DEBUG_INFO_BTF
 
     # ==========================================
@@ -661,13 +701,16 @@ apply_common_config() {
     # 压缩算法
     # ==========================================
     # vmlinuz 用 XZ：体积小，且兼容老 GRUB
-    scripts/config --disable CONFIG_KERNEL_GZIP
-    scripts/config --disable CONFIG_KERNEL_ZSTD
-    scripts/config --disable CONFIG_KERNEL_BZIP2
-    scripts/config --disable CONFIG_KERNEL_LZMA
-    scripts/config --disable CONFIG_KERNEL_LZ4
-    scripts/config --disable CONFIG_KERNEL_LZO
-    scripts/config --enable CONFIG_KERNEL_XZ
+    # 仅 x86 有这组压缩内核配置；ARM64 由工作流固定 KBUILD_IMAGE 为 raw Image。
+    if [ "$arch" = x86_64 ]; then
+        scripts/config --disable CONFIG_KERNEL_GZIP
+        scripts/config --disable CONFIG_KERNEL_ZSTD
+        scripts/config --disable CONFIG_KERNEL_BZIP2
+        scripts/config --disable CONFIG_KERNEL_LZMA
+        scripts/config --disable CONFIG_KERNEL_LZ4
+        scripts/config --disable CONFIG_KERNEL_LZO
+        scripts/config --enable CONFIG_KERNEL_XZ
+    fi
 
     # ★ 模块压缩：真正的门是父开关 CONFIG_MODULE_COMPRESS。某次成功 config 里是
     #   "# CONFIG_MODULE_COMPRESS is not set"，所以 MODULE_COMPRESS_XZ 这个符号根本不存在、
@@ -745,8 +788,13 @@ _check_str_warn() {
 
 verify_config() {
     local distro="${1:?需要指定发行版: centos|debian}"
+    local arch="${2:-x86_64}"
 
     [ -f .config ] || { echo "错误: 当前目录没有 .config，verify 必须在内核源码目录执行"; exit 1; }
+    case "$arch" in
+        x86_64|arm64) ;;
+        *) echo "错误: 未知架构 '$arch'"; exit 1 ;;
+    esac
 
     echo "=================================================="
     echo " 内核配置校验 (${distro})"
@@ -815,6 +863,31 @@ verify_config() {
             echo "错误: 未知发行版 '$distro'"; exit 1 ;;
     esac
 
+    # 通用 ARM64 云服务器 profile 的必备能力必须内建，不能仅为模块。
+    if [ "$arch" = arm64 ]; then
+        local key
+        for key in CONFIG_ARM64 CONFIG_ARM64_4K_PAGES CONFIG_EFI CONFIG_EFI_STUB \
+                   CONFIG_ACPI CONFIG_PCI CONFIG_PCI_HOST_GENERIC CONFIG_VIRTIO_MMIO \
+                   CONFIG_SERIAL_AMBA_PL011 CONFIG_SERIAL_AMBA_PL011_CONSOLE \
+                   CONFIG_ARM_GIC_V3 CONFIG_ARM_GIC_V3_ITS CONFIG_ARM_ARCH_TIMER CONFIG_ARM_PSCI_FW \
+                   CONFIG_IOMMU_SUPPORT CONFIG_ARM_SMMU CONFIG_ARM_SMMU_V3 \
+                   CONFIG_TCP_CONG_ADVANCED CONFIG_NET_VENDOR_GOOGLE CONFIG_GVE; do
+            if grep -qx "${key}=y" .config; then
+                printf '  [OK]   %-45s ARM64 启动能力内建\n' "$key"
+            else
+                printf '  [FAIL] %-45s ARM64 profile 要求 =y\n' "$key"
+                _vc_fail=1
+            fi
+        done
+        for key in CONFIG_DEBUG_INFO_BTF CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT \
+                   CONFIG_DEBUG_INFO_DWARF4 CONFIG_DEBUG_INFO_DWARF5; do
+            if grep -qE "^${key}=(y|m)$" .config; then
+                printf '  [FAIL] %-45s ARM64 profile 要求关闭调试信息/BTF\n' "$key"
+                _vc_fail=1
+            fi
+        done
+    fi
+
     echo
     echo "--- 增强项：缺失只告警，不阻断 ---"
     _check_warn CONFIG_WIREGUARD          "WireGuard"
@@ -832,8 +905,10 @@ verify_config() {
     _check_warn CONFIG_VIRTIO_BALLOON     "KVM 内存气球"
     _check_warn CONFIG_KVM                "KVM 宿主(PVE)"
     _check_warn CONFIG_VFIO_PCI           "PCI 直通(PVE)"
-    _check_warn CONFIG_INTEL_IOMMU        "Intel IOMMU"
-    _check_warn CONFIG_AMD_IOMMU          "AMD IOMMU"
+    if [ "$arch" = x86_64 ]; then
+        _check_warn CONFIG_INTEL_IOMMU        "Intel IOMMU"
+        _check_warn CONFIG_AMD_IOMMU          "AMD IOMMU"
+    fi
     _check_warn CONFIG_OPENVSWITCH        "OVS 虚拟交换机(PVE)"
     _check_warn CONFIG_ZRAM               "ZRAM 内存压缩"
     _check_warn CONFIG_ZSWAP              "ZSWAP"
@@ -874,11 +949,11 @@ verify_config() {
 # 入口
 # ------------------------------------------------------------------
 case "${1:-}" in
-    apply)  apply_common_config ;;
-    verify) shift; verify_config "${1:-}" ;;
+    apply)  shift; apply_common_config "${1:-x86_64}" ;;
+    verify) shift; verify_config "${1:-}" "${2:-x86_64}" ;;
     *)
-        echo "用法: bash $0 apply"
-        echo "      bash $0 verify <centos|debian>"
+        echo "用法: bash $0 apply [x86_64|arm64]"
+        echo "      bash $0 verify <centos|debian> [x86_64|arm64]"
         exit 1
         ;;
 esac

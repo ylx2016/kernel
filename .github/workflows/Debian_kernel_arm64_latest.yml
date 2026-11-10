@@ -6,141 +6,667 @@
 # Change from P3TERX
 #
 
-name: Debian Kernel ARM64 latest
+name: Debian Kernel ARM64 Latest
 
 on:
   workflow_dispatch:
-  #schedule:
-    #- cron: "36 19 * * 2,6"
-   # inputs:
-    #  ssh:
-     #   description: 'SSH connection to Actions'
-      #  required: false
-       # default: 'false'
+    inputs:
+      source_method:
+        description: 'Source download method (源码获取方式)'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - git
+      force_build:
+        description: '已发布过也强制重新编译 (force rebuild even if released)'
+        required: false
+        default: false
+        type: boolean
+  # 暂不启用定时：与 x86 流水线节奏对齐前先观察手动触发的稳定性
+  # schedule:
+  #   - cron: '7 20 * * 2,6'
 
 env:
   UPLOAD_DIR: true
   UPLOAD_RELEASE: true
-  UPLOAD_WETRANSFER: false
   TZ: Asia/Shanghai
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # ★ 与 x86 Debian 流水线同一套安全骨架，但改为 ARM64 原生构建：
+  #   - ubuntu-24.04-arm 原生 arm64 runner，编译容器也是 linux/arm64，
+  #     不做交叉编译；debian:12-slim 多架构镜像按 runner 自动选择对应层。
+  #   - 原旧流水线用 x86 镜像(qctt/kernelbuild)交叉编译 + RHEL 老 config，
+  #     且容器内直接跑 job 级步骤、引用已废弃的 set-output 与 secrets.TOKEN。
+  #   - KBUILD_IMAGE 显式指向未压缩 Image（bindeb-pkg 走 make image_name），
+  #     避免受 CONFIG_COMPRESSED_INSTALL/EFI_ZBOOT 等上游默认漂移影响。
+  BUILD_IMAGE: debian:12-slim
+  BUILD_CONTAINER: kernel-builder-arm64
+  VERIFY_CONTAINER: kernel-deb-verifier-arm64
+  BUILD_ARCH: linux/arm64
+  CROSS_COMPILE: ""
+  ARCH: arm64
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: debian-cloud-kernel-arm64
+  cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    container: docker.io/qctt/kernelbuild:debian12
-    
+  check_update:
+    runs-on: ubuntu-24.04
+    outputs:
+      build_needed: ${{ steps.check.outputs.build_needed }}
+      kernel_ver: ${{ steps.check.outputs.kernel_ver }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
-    
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo apt update && apt install dwarves gcc-aarch64-linux-gnu -y
-        sudo chown $USER:$GROUPS /workdir
-        sudo chown $USER:$GROUPS /workdir/upload
+      - name: Check latest kernel version
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_BUILD: ${{ inputs.force_build }}
+        run: |
+          set -euo pipefail
+          kernel_ver=$(git ls-remote --tags https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git | \
+            awk -F'refs/tags/v' '/refs\/tags\/v[0-9]+\.[0-9]+(\.[0-9]+)?$/ {print $2}' | \
+            sort -V | \
+            tail -n 1)
 
-    - name: Check for updates
-      id: check
-      run: |
-       github_tag=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep 'Debian_Kernel' | grep '_arm64_' | head -n 1 | awk -F '"' '{print $4}' | awk -F '[/]' '{print $8}')
-       github_ver=$(curl -s 'https://api.github.com/repos/ylx2016/kernel/releases' | grep ${github_tag}  | grep 'deb' | grep 'headers' | awk -F '"' '{print $4}' | awk -F '[/]' '{print $9}' | awk -F '[-]' '{print $3}' | awk -F '[_]' '{print $1}')
-       kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-       echo "github_ver=" $github_ver
-       echo "kernel_ver=" $kernel_ver
-       if [[ $github_ver == *"$kernel_ver"* ]]; then
-         echo "::set-output name=status::fail"
-       else
-         echo "::set-output name=status::success"
-       fi
+          if [ -z "$kernel_ver" ] || [ "$kernel_ver" == "null" ]; then
+            echo "Error: Failed to fetch kernel version from git.kernel.org."
+            exit 1
+          fi
+          if ! [[ "$kernel_ver" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+            echo "错误: 内核版本号格式异常"
+            exit 1
+          fi
 
-    - name: Get source code
-      id: code
-      working-directory: /workdir
-      if: steps.check.outputs.status == 'success'
-      run: |
-        df -hT $PWD
-        kernel_file=$(curl -s https://www.kernel.org/ | grep 'alt="Download"' | awk -F '"' '{print $2}')
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        wget -O kernel.tar.xz $kernel_file
-        tar -Jxvf kernel.tar.xz -C /workdir && cd /workdir/linux-$kernel_ver
-        echo "::set-output name=status::success"
+          echo "Latest stable kernel version is: $kernel_ver"
+          echo "kernel_ver=$kernel_ver" >> "$GITHUB_OUTPUT"
 
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@v1.0.0
-      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
-      env:
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # 历史命名沿用 Debian_Kernel_*_latest_arm64_*；dedup 仍 fail-closed。
+          if ! released=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 --exclude-drafts \
+                            --json tagName --jq '.[].tagName'); then
+            echo "Error: 无法获取 Release 列表，为避免重复发布，直接终止。"
+            exit 1
+          fi
 
-    - name: Compile the kernel
-      id: compile
-      if: steps.code.outputs.status == 'success'
-      working-directory: /workdir
-      run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        cd linux-$kernel_ver
-        #wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/5.13.arm64.config
-        wget -O .config https://raw.githubusercontent.com/ylx2016/kernel/master/kernel-aarch64-rhel.config
-        sed -ri '/CONFIG_SYSTEM_TRUSTED_KEYS/s/=.+/=""/g' .config
-        sed -ri '/CONFIG_DEBUG_KERNEL=/c\CONFIG_DEBUG_KERNEL=n' .config
-        sed -ri '/CONFIG_DEBUG_MISC=/c\CONFIG_DEBUG_MISC=n' .config
-        sed -ri '/CONFIG_MODULE_SIG=/c\CONFIG_MODULE_SIG=n' .config
-        sed -ri '/CONFIG_DEBUG_INFO=/c\CONFIG_DEBUG_INFO=n' .config
-        sed -i 's/.*CONFIG_DEBUG_INFO_BTF.*/CONFIG_DEBUG_INFO_BTF=n/' .config
-        sed -i 's/.*CONFIG_DEBUG_INFO_DWARF4.*/CONFIG_DEBUG_INFO_DWARF4=n/' .config
-        sed -i 's/.*CONFIG_DEBUG_INFO_DWARF5.*/CONFIG_DEBUG_INFO_DWARF5=n/' .config
-        sed -i 's/.*CONFIG_DEBUG_INFO_NONE.*/CONFIG_DEBUG_INFO_NONE=n/' .config
-        scripts/config --disable MODULE_SIG
-        scripts/config --disable DEBUG_INFO
-        scripts/config --disable DEBUG_INFO_BTF
-        scripts/config --disable DEBUG_INFO_DWARF4
-        scripts/config --disable DEBUG_INFO_DWARF5
-        scripts/config --disable DEBUG_INFO_NONE
-        scripts/config --disable SYSTEM_TRUSTED_KEYS
-        scripts/config --disable SYSTEM_REVOCATION_KEYS
-        echo -e "$(nproc) thread compile"
-        sudo time make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) bindeb-pkg
-        cd /workdir && mv *.deb /workdir/upload
-        echo "::set-output name=status::success"
-        echo "FILE_DATE=Kernel_Debian_$kernel_ver_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV   
+          released_match=false
+          while IFS= read -r tag; do
+            prefix="Debian_Kernel_${kernel_ver}_latest_arm64_bbr_"
+            if [[ "$tag" == "$prefix"* && "${tag#"$prefix"}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9]{4}$ ]]; then
+              released_match=true
+            fi
+          done <<< "$released"
+          if [ "$released_match" = true ]; then
+            echo "Kernel arm64 $kernel_ver has already been released."
+            if [ "${FORCE_BUILD:-false}" == "true" ]; then
+              echo "force_build=true, forcing rebuild."
+              echo "build_needed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "build_needed=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Kernel arm64 $kernel_ver is new. Build needed."
+            echo "build_needed=true" >> "$GITHUB_OUTPUT"
+          fi
 
-    - name: Check space usage
-      if: (!cancelled()) && steps.compile.outputs.status == 'success'
-      run: df -hT
+  build:
+    needs: check_update
+    if: needs.check_update.outputs.build_needed == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-    - name: Upload
-      uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_DIR == 'true'
-      with:
-        name: ${{ env.FILE_DATE }}
-        path: /workdir/upload
-        
-    - name: Upload to WeTransfer
-      id: wetransfer
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
-      run: |
-        curl -fsSL git.io/file-transfer | sh
-        ./transfer wet -s -p 16 --no-progress /workdir/upload 2>&1 | tee wetransfer.log
-        echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
-        echo "::set-output name=url::$(cat wetransfer.log | grep https | cut -f3 -d" ")"        
+      - name: Free up disk space (Critical)
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          df -h
 
-    - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success' && !cancelled()
-      run: |
-        kernel_ver=$(curl -s https://www.kernel.org/ | grep ' <a href="https://cdn.kernel.org/pub/linux/kernel/' | head -n 1 | awk -F '[>]' '{print $2}' | awk -F '[<]' '{print $1}')
-        echo "::set-output name=release_tag::Debian_Kernel_${kernel_ver}_latest_arm64_bbr_$(date +"%Y.%m.%d-%H%M")"
-        touch release.txt
-        echo "::set-output name=status::success"
+      - name: Start Debian 12 ARM64 build container
+        run: |
+          set -euo pipefail
+          [ "$(uname -m)" = aarch64 ] || { echo "错误: 必须使用原生 ARM64 runner"; exit 1; }
+          ok=false
+          for i in 1 2 3; do
+            if docker pull --platform "$BUILD_ARCH" "$BUILD_IMAGE"; then ok=true; break; fi
+            echo "警告: docker pull 第 ${i} 次失败，10 秒后重试"
+            sleep 10
+          done
+          if [ "$ok" != "true" ]; then
+            echo "错误: 无法拉取 $BUILD_ARCH 的 $BUILD_IMAGE"
+            exit 1
+          fi
+          # 记录未运行构建代码的原始镜像 ID，最终验包阶段使用同一镜像。
+          base_image_id=$(docker image inspect --format '{{.Id}}' "$BUILD_IMAGE")
+          [[ "$base_image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+          echo "BUILD_BASE_IMAGE_ID=$base_image_id" >> "$GITHUB_ENV"
 
-    - name: Upload kernel to release
-      uses: softprops/action-gh-release@v1
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: /workdir/upload/*
+          docker rm -f "$BUILD_CONTAINER" >/dev/null 2>&1 || true
+          docker run -d --name "$BUILD_CONTAINER" \
+            --platform "$BUILD_ARCH" \
+            --init \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            -e TZ="$TZ" \
+            -e DEBIAN_FRONTEND=noninteractive \
+            "$base_image_id" sleep infinity
+
+          [ "$(docker exec "$BUILD_CONTAINER" uname -m)" = aarch64 ] || exit 1
+          [ "$(docker exec "$BUILD_CONTAINER" dpkg --print-architecture)" = arm64 ] || exit 1
+          echo "容器内 Debian 版本: $(docker exec "$BUILD_CONTAINER" cat /etc/debian_version)"
+          df -h
+
+      - name: Install Dependencies (Debian 12 ARM64)
+        run: |
+          docker exec \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            "$BUILD_CONTAINER" bash -c '
+            set -euo pipefail
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              build-essential bc bison flex cpio kmod perl python3 passwd \
+              libncurses-dev libelf-dev libssl-dev libdw-dev zlib1g-dev \
+              dwarves zstd xz-utils wget curl aria2 rsync ca-certificates \
+              git dpkg-dev debhelper fakeroot
+            rm -rf /var/lib/apt/lists/*
+
+            # 与宿主 runner 同 uid/gid 的构建用户，/work 天然可写、产物属主正确。
+            groupadd -g "$HOST_GID" builder
+            useradd -m -u "$HOST_UID" -g "$HOST_GID" -s /bin/bash builder
+            if [ "$(id -u builder)" != "$HOST_UID" ] || [ "$(id -g builder)" != "$HOST_GID" ]; then
+              echo "错误: 构建用户 uid/gid 与宿主不一致"
+              exit 1
+            fi
+            echo "构建用户: $(id builder)"
+
+            echo "--- toolchain (arm64 native) ---"
+            gcc --version | sed -n "1p"
+            ld --version | sed -n "1p"
+            make --version | sed -n "1p"
+            target=$(gcc -dumpmachine)
+            [ "$target" = aarch64-linux-gnu ] || { echo "错误: 非 ARM64 原生工具链: $target"; exit 1; }
+            # 注意 \$ 转义：外层已是单引号，内层双引号里的 ${Version} 必须 \${...}。
+            dpkg-query -W -f="debhelper=\${Version}\n" debhelper
+            dpkg-query -W -f="dwarves(pahole)=\${Version}\n" dwarves
+          '
+
+      - name: Get Kernel Version & Source
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+          FETCH_METHOD_INPUT: ${{ inputs.source_method }}
+        run: |
+          set -euo pipefail
+          kernel_ver="$KERNEL_VER"
+          if ! [[ "$kernel_ver" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+            echo "错误: kernel_ver 为空或格式异常: '$kernel_ver'"
+            exit 1
+          fi
+          echo "kernel_ver=$kernel_ver" >> "$GITHUB_ENV"
+          echo "FILE_DATE=Kernel_Debian_arm64_${kernel_ver}_$(date +"%Y%m%d%H%M")" >> "$GITHUB_ENV"
+
+          FETCH_METHOD="${FETCH_METHOD_INPUT:-auto}"
+          if [ -z "$FETCH_METHOD" ]; then
+            FETCH_METHOD="auto"
+          fi
+          echo "Selected fetch method: $FETCH_METHOD"
+
+          docker exec \
+            -u builder \
+            -e HOME=/home/builder \
+            -e KERNEL_VER="$kernel_ver" \
+            -e FETCH_METHOD="$FETCH_METHOD" \
+            "$BUILD_CONTAINER" bash -c '
+              set -euo pipefail
+              # bindeb-pkg 把 .deb 生成在源码目录的【上一级】= 挂载点 /work。
+              cd /work
+              if [ -e "linux-${KERNEL_VER}" ] || [ -L "linux-${KERNEL_VER}" ]; then
+                echo "错误: 源码路径已存在，拒绝覆盖"
+                exit 1
+              fi
+
+              MAJOR_VER=$(echo "$KERNEL_VER" | cut -d. -f1)
+              TARBALL_URL="https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VER}.x/linux-${KERNEL_VER}.tar.xz"
+              GIT_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
+
+              fetch_tarball() {
+                aria2c -x16 -s16 -k1M --max-tries=3 --retry-wait=3 \
+                  --summary-interval=0 --console-log-level=warn \
+                  -o linux.tar.xz "$TARBALL_URL"
+              }
+
+              use_git=true
+              if [ "$FETCH_METHOD" = "auto" ]; then
+                echo "Downloading via aria2c (16 连接并发): $TARBALL_URL"
+                if fetch_tarball; then
+                  echo "Download OK. Extracting tarball..."
+                  if tar -xf linux.tar.xz --no-same-owner --no-same-permissions; then
+                    use_git=false
+                  else
+                    echo "Warning: 解压失败，清理残留后回退 Git clone..."
+                    rm -rf -- "linux-${KERNEL_VER}"
+                  fi
+                else
+                  echo "Warning: aria2c download failed! Falling back to Git clone..."
+                fi
+                rm -f -- linux.tar.xz linux.tar.xz.aria2
+              fi
+              if [ "$use_git" = true ]; then
+                git clone --depth 1 --branch "v${KERNEL_VER}" "$GIT_URL" "linux-${KERNEL_VER}"
+              fi
+
+              if [ ! -d "/work/linux-${KERNEL_VER}" ] || [ ! -f "/work/linux-${KERNEL_VER}/Makefile" ]; then
+                echo "错误: 内核源码目录或 Makefile 缺失"
+                exit 1
+              fi
+              echo "内核源码就绪: $(du -sh "/work/linux-${KERNEL_VER}" | cut -f1)"
+            '
+
+      - name: Configure Kernel (Debian ARM64 Cloud)
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+        run: |
+          docker exec \
+            -u builder \
+            -e HOME=/home/builder \
+            -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_CONTAINER" bash -c '
+              set -euo pipefail
+              cd "/work/linux-${KERNEL_VER}"
+
+              # ARM64 原生编译，无需 CROSS_COMPILE。
+              make ARCH=arm64 defconfig
+
+              # ==========================================
+              # 公共配置：与 x86 流水线共用同一份权威来源（arm64 profile 只跳过
+              # x86 专属项并补充 ARM64 启动关键项），杜绝两架构配置漂移。
+              # ==========================================
+              bash /work/kernel-config-common.sh apply arm64
+
+              # Debian 专属：AppArmor 安全链（与 x86 Debian 流水线一致）
+              scripts/config --enable CONFIG_SECURITY_APPARMOR
+              scripts/config --enable CONFIG_SECURITY_APPARMOR_BOOTPARAM
+              scripts/config --enable CONFIG_DEFAULT_SECURITY_APPARMOR
+              scripts/config --enable CONFIG_SECURITY_APPARMOR_HASH
+              scripts/config --set-str CONFIG_LSM "landlock,lockdown,yama,loadpin,safesetid,integrity,apparmor,bpf"
+
+              make ARCH=arm64 olddefconfig
+
+              bash /work/kernel-config-common.sh verify debian arm64
+
+              # 防止意外 localversion 使包版本、安装说明和文件路径不一致。
+              [ "$(make ARCH=arm64 -s kernelrelease)" = "$KERNEL_VER" ]
+            '
+
+      - name: Compile Kernel
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+        run: |
+          set -euo pipefail
+          docker exec \
+            -u builder \
+            -e HOME=/home/builder \
+            -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_CONTAINER" bash -c '
+              set -euo pipefail
+              cd "/work/linux-${KERNEL_VER}"
+              echo "$(nproc) thread compile"
+
+              # ★ KBUILD_IMAGE 显式指向未压缩 Image：
+              #   arm64 上游默认 KBUILD_IMAGE 是 Image.gz，而 bindeb-pkg 通过
+              #   make image_name 取镜像；显式固定，避免上游默认漂移。
+              time make ARCH=arm64 KBUILD_IMAGE=arch/arm64/boot/Image -j"$(nproc)" Image modules dtbs
+              time make ARCH=arm64 KBUILD_IMAGE=arch/arm64/boot/Image KBUILD_DEBARCH=arm64 -j"$(nproc)" bindeb-pkg KDEB_COMPRESS=xz
+
+              mkdir -p /work/upload
+              shopt -s nullglob
+              debs=(/work/*.deb)
+              if [ "${#debs[@]}" -eq 0 ]; then
+                echo "错误: bindeb-pkg 没有产出任何 .deb 包，构建视为失败"
+                exit 1
+              fi
+              mv "${debs[@]}" /work/upload/
+              ls -lh /work/upload/
+            '
+
+          # 不在 builder 存活时接受产物；下一步先停止容器，再统一接收和验包。
+
+      - name: Stop builder before collecting artifacts
+        run: |
+          set -euo pipefail
+          # 强制终止容器内全部进程，再从宿主接收产物；失败就阻断发布。
+          docker rm -f "$BUILD_CONTAINER"
+
+      - name: Collect deb artifacts
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+        run: |
+          set -euo pipefail
+          # builder 已停止；接收目录在从未挂给 builder 的 RUNNER_TEMP 中。
+          upload_dir=$(mktemp -d "$RUNNER_TEMP/arm64-deb.XXXXXX")
+          python3 -I -B - "$GITHUB_WORKSPACE/upload" "$upload_dir" "$KERNEL_VER" <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import stat
+          import sys
+
+          source, destination = map(Path, sys.argv[1:3])
+          version = sys.argv[3]
+          if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', version):
+              raise SystemExit('Invalid kernel version')
+          # 不 resolve 后再查，避免隐藏源目录符号链接。
+          for directory in (source, destination):
+              if not stat.S_ISDIR(directory.lstat().st_mode):
+                  raise SystemExit('Artifact directory must be a real directory')
+          if list(destination.iterdir()):
+              raise SystemExit('Snapshot directory must be empty')
+          expected = {f'linux-image-{version}', f'linux-headers-{version}', 'linux-libc-dev'}
+          pattern = re.compile(r'(?P<name>linux-image-' + re.escape(version)
+                               + r'|linux-headers-' + re.escape(version) + r'|linux-libc-dev)_'
+                               + re.escape(version) + r'-(?P<revision>[0-9]+)_arm64\.deb')
+          records, names, revisions = [], set(), set()
+          for path in sorted(source.iterdir()):
+              match = pattern.fullmatch(path.name)
+              info = path.lstat()
+              if (not match or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                      or not 0 < info.st_size < 2 * 1024**3):
+                  raise SystemExit('Invalid artifact: ' + path.name)
+              if match.group('name') in names:
+                  raise SystemExit('Duplicate deb package')
+              names.add(match.group('name'))
+              revisions.add(match.group('revision'))
+              records.append((path, info))
+          if (names != expected or len(revisions) != 1
+                  or sum(info.st_size for _, info in records) > 4 * 1024**3):
+              raise SystemExit('Incomplete or inconsistent deb package set')
+          # 整组检查通过才创建宿主文件；不使用会跟随链接的 cp。
+          for path, before in records:
+              flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+              with os.fdopen(os.open(path, flags), 'rb') as incoming:
+                  current = os.fstat(incoming.fileno())
+                  if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                          or (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
+                          != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)):
+                      raise SystemExit('Artifact changed before copy')
+                  target = destination / path.name
+                  with target.open('xb') as outgoing:
+                      remaining = before.st_size
+                      while remaining:
+                          chunk = incoming.read(min(1024 * 1024, remaining))
+                          if not chunk:
+                              raise SystemExit('Artifact truncated during copy')
+                          outgoing.write(chunk)
+                          remaining -= len(chunk)
+                      after = os.fstat(incoming.fileno())
+                      if incoming.read(1) or (after.st_size, after.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+                          raise SystemExit('Artifact changed during copy')
+                  target.chmod(0o644)
+              print(f'{path.name}: {before.st_size} bytes')
+          PY
+          echo "UPLOAD_PATH=$upload_dir" >> "$GITHUB_ENV"
+          ls -lh "$upload_dir"
+          df -h
+
+      - name: Validate final deb artifacts
+        timeout-minutes: 5
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+        run: |
+          set -euo pipefail
+          # 验证的正是后续上传的宿主快照；builder 已销毁，验包器只读。
+          docker run --rm --name "$VERIFY_CONTAINER" --init -i --pull never \
+            --platform "$BUILD_ARCH" \
+            --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --pids-limit 128 --memory 1g --cpus 2 \
+            --user "$(id -u):$(id -g)" --workdir /tmp \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+            --mount "type=bind,source=$UPLOAD_PATH,target=/packages,readonly" \
+            -e HOME=/tmp -e TMPDIR=/tmp -e LC_ALL=C -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_BASE_IMAGE_ID" bash -se <<'VERIFY'
+          set -euo pipefail
+          [[ "$KERNEL_VER" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || exit 1
+          # 原始 Debian slim 已有 dpkg-deb/tar/coreutils；无需联网安装 Python 或执行 helper。
+          scratch=$(mktemp -d)
+          trap 'rm -rf -- "$scratch"' EXIT
+          # 单个选定成员最多 192 MiB；只流入 tmpfs 固定文件，不按包内路径落盘。
+          ulimit -f 196608
+          extract_member() {
+            local package="$1" member="$2" listing
+            listing=$(dpkg-deb --fsys-tarfile "$package" | tar -tvf - -- "$member")
+            if [[ "$listing" != -* || "$listing" == *$'\n'* ]]; then
+              echo "错误: 缺失、重复或非普通 payload 成员: $member"
+              exit 1
+            fi
+            dpkg-deb --fsys-tarfile "$package" | tar -xOf - -- "$member" > "$scratch/payload"
+            [ -s "$scratch/payload" ] || { echo "错误: 空 payload: $member"; exit 1; }
+          }
+          verify_elf() {
+            local identity machine
+            identity=$(od -An -v -tx1 -N7 "$scratch/payload" | tr -d " \n")
+            machine=$(od -An -v -tx1 -j18 -N2 "$scratch/payload" | tr -d " \n")
+            if [[ "$identity" != 7f454c46020101 || "$machine" != b700 ]] || \
+               [ "$(stat -c %s "$scratch/payload")" -lt 64 ]; then
+              echo "错误: headers helper 不是 ELF64 little-endian AArch64"
+              exit 1
+            fi
+          }
+          cd /packages
+          shopt -s nullglob dotglob
+          debs=(./*)
+          if [ "${#debs[@]}" -ne 3 ]; then
+            echo "错误: 最终快照不是完整的三个 deb"
+            exit 1
+          fi
+          declare -A seen=()
+          package_version=""
+          total_size=0
+          for package in "${debs[@]}"; do
+            if [ ! -f "$package" ] || [ -L "$package" ] || [ "$(stat -c %h "$package")" != 1 ]; then
+              echo "错误: 最终 deb 不是无链接的常规文件"
+              exit 1
+            fi
+            size=$(stat -c %s "$package")
+            [ "$size" -gt 0 ] && [ "$size" -lt 2147483648 ] || exit 1
+            total_size=$((total_size + size))
+            [ "$total_size" -le 4294967296 ] || exit 1
+            # 多字段调用会输出 "Package: ..." 等带标签的多行文本，必须逐字段查询。
+            name=$(dpkg-deb -f "$package" Package)
+            version=$(dpkg-deb -f "$package" Version)
+            arch=$(dpkg-deb -f "$package" Architecture)
+            revision=${version#"$KERNEL_VER"-}
+            if ! [[ "$arch" == arm64 && "$version" == "$KERNEL_VER"-* && "$revision" =~ ^[0-9]+$ ]]; then
+              echo "错误: deb 架构或版本不符"
+              exit 1
+            fi
+            if [ "${package##*/}" != "${name}_${version}_arm64.deb" ]; then
+              echo "错误: deb 文件名与元数据不一致"
+              exit 1
+            fi
+            case "$name" in
+              "linux-image-${KERNEL_VER}"|"linux-headers-${KERNEL_VER}"|linux-libc-dev) ;;
+              *) echo "错误: 意外 deb 包名 $name"; exit 1 ;;
+            esac
+            if [ -n "${seen[$name]:-}" ] || [[ -n "$package_version" && "$version" != "$package_version" ]]; then
+              echo "错误: 重复包名或不同构建 revision"
+              exit 1
+            fi
+            seen[$name]=1
+            package_version=$version
+            case "$name" in
+              "linux-image-${KERNEL_VER}")
+                extract_member "$package" "./boot/vmlinuz-${KERNEL_VER}"
+                # raw ARM64 Image 不是 ELF：boot header 的 magic 在偏移 56。
+                magic=$(od -An -v -tx1 -j56 -N4 "$scratch/payload" | tr -d " \n")
+                [ "$magic" = 41524d64 ] && [ "$(stat -c %s "$scratch/payload")" -ge 64 ] || \
+                  { echo "错误: 不是 raw ARM64 Image"; exit 1; }
+                ;;
+              "linux-headers-${KERNEL_VER}")
+                root="./usr/src/linux-headers-${KERNEL_VER}"
+                extract_member "$package" "$root/Makefile"
+                for helper in scripts/basic/fixdep scripts/mod/modpost; do
+                  extract_member "$package" "$root/$helper"
+                  verify_elf
+                done
+                ;;
+              linux-libc-dev)
+                extract_member "$package" ./usr/include/linux/types.h
+                ;;
+            esac
+            echo "--- $name $version $arch ok ---"
+          done
+          for required in "linux-image-${KERNEL_VER}" "linux-headers-${KERNEL_VER}" linux-libc-dev; do
+            [ "${seen[$required]:-}" = 1 ] || { echo "错误: 缺少 $required"; exit 1; }
+          done
+          VERIFY
+          echo "compile_status=success" >> "$GITHUB_ENV"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ env.compile_status == 'success' && env.UPLOAD_DIR == 'true' }}
+        with:
+          name: ${{ env.FILE_DATE }}
+          path: ${{ env.UPLOAD_PATH }}/
+          if-no-files-found: error
+
+      - name: Generate release tag and notes
+        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+        run: |
+          set -euo pipefail
+          kernel_ver="$KERNEL_VER"
+          echo "release_tag=Debian_Kernel_${kernel_ver}_latest_arm64_bbr_$(date +"%Y.%m.%d-%H%M")" >> "$GITHUB_ENV"
+          cat > "$RUNNER_TEMP/arm64-release.txt" <<EOF
+          ## Debian / Ubuntu 系 ARM64 云内核 ${kernel_ver}
+
+          面向使用 4K 页的通用 ARM64 云/服务器环境，默认启用 BBR + FQ。
+          配置包含 UEFI/EFI stub、ACPI、GICv3、PL011 和 SMMU；这些能力不等于所有 ARM 板卡兼容。
+          保留 arm64 defconfig 的 32 位兼容选项，具体用户态支持取决于 CPU 和系统。
+
+          ### 安装前检查
+          - 确认机器为 aarch64，Debian 包架构为 arm64；本包不是 x86 或 armhf 内核。
+          - 保留旧内核和可用的救援/串口入口；确认固件能加载未压缩 ARM64 Image。
+          - 本内核未签名：Secure Boot 环境需按本机信任策略签名或调整设置。
+          - 只安装本次同 revision 的 image + headers；linux-libc-dev 不属于默认安装集合。
+          - U-Boot/设备树/板厂固件须按对应板卡文档准备 DTB 和启动项，不能照搬 GRUB 步骤。
+
+          ### Debian ARM64 / GRUB 示例
+          在仅放置本次下载的三个包的目录运行；安装前核对输出中的 Version 完全一致。
+          \`\`\`bash
+          test "\$(uname -m)" = aarch64 && test "\$(dpkg --print-architecture)" = arm64 || exit 1
+          dpkg-deb -f linux-image-${kernel_ver}_*-*_arm64.deb Version
+          dpkg-deb -f linux-headers-${kernel_ver}_*-*_arm64.deb Version
+          sudo dpkg -i linux-image-${kernel_ver}_*-*_arm64.deb linux-headers-${kernel_ver}_*-*_arm64.deb
+          # 开机默认启用 BBR + FQ(内核已内建 BBR，FQ 队列用 sysctl 开启最稳妥)
+          echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" | sudo tee /etc/sysctl.d/99-bbr.conf
+          sudo sysctl --system
+          # 仅在本机确实使用 GRUB 时执行；其他引导方案遵循平台文档。
+          sudo update-grub
+          # 检查启动项并确保旧内核仍可回退后再重启。
+          sudo reboot
+          \`\`\`
+
+          ### 主要特性
+          - 拥塞控制默认 BBR(已内建)；FQ 队列建议用上面的 sysctl 开启
+          - ARM64 原生 UEFI + ACPI + GICv3/ITS + SMMU，virtio 全栈启用
+          - AWS(aarch64 ENA)、GCP(GVE) 云驱动开启
+          - 容器全栈：overlayfs、cgroup、netfilter NAT、kube-proxy statistic 匹配器
+          - 防火墙：nftables + iptables + ipset + AppArmor
+          - 内存优化：MGLRU、DAMON、ZRAM/ZSWAP
+          - 模块采用 XZ 压缩，兼容 kmod < 29 的老系统
+
+          > 构建时已自动校验关键配置项均真实生效。
+          > 为保持精简，未启用 BTF，不提供 BPF LSM 策略加载支持；AppArmor 不受影响。
+          > 编译环境：Debian 12 (bookworm) ARM64 原生容器，gcc 12 / binutils 2.40。
+          EOF
+
+      - name: Upload Kernel to Release
+        id: release
+        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+          RELEASE_TAG: ${{ env.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            "$UPLOAD_PATH"/*.deb \
+            --title "Debian Cloud Kernel ${KERNEL_VER} (BBR, arm64)" \
+            --notes-file "$RUNNER_TEMP/arm64-release.txt"
+
+      # 只清理本流水线自己的 arm64 Release，保留最新 3 份，Release 和 tag 一起删
+      - name: Prune old releases
+        if: ${{ steps.release.outcome == 'success' && !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PREFIX: Debian_Kernel_
+          ARM64_SUFFIX: latest_arm64_bbr_
+          KEEP: 3
+        run: |
+          set -euo pipefail
+          if ! all=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 --exclude-drafts \
+                       --json tagName,publishedAt --jq '.[] | [.publishedAt, .tagName] | @tsv'); then
+            echo "警告: 无法获取 Release 列表，跳过本次清理（本次发布已成功，不影响产物）"
+            exit 0
+          fi
+
+          # 用「Debian_Kernel_ + 版本 + _latest_arm64_bbr_」锚定，绝不动 x86 的
+          # Debian_Kernel_Cloud_ 前缀产物，也不会误伤 Centos/Ubuntu 历史 tag。
+          stale=$(printf '%s\n' "$all" \
+            | awk -F'\t' -v pfx="$RELEASE_PREFIX" -v sfx="$ARM64_SUFFIX" \
+                  '$2 ~ "^" pfx "[0-9]+([.][0-9]+){1,2}_" sfx "[0-9]{4}[.][0-9]{2}[.][0-9]{2}-[0-9]{4}$"' \
+            | sort -r \
+            | tail -n +"$((KEEP + 1))" \
+            | cut -f2)
+
+          if [ -z "$stale" ]; then
+            echo "arm64 Release 未超过 ${KEEP} 份，无需清理。"
+            exit 0
+          fi
+
+          echo "保留最新 ${KEEP} 份，以下 $(printf '%s\n' "$stale" | wc -l) 个旧 arm64 Release 将连同 tag 一并删除:"
+          printf '  %s\n' "$stale"
+
+          printf '%s\n' "$stale" | while read -r tag; do
+            [ -n "$tag" ] || continue
+            if gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag; then
+              echo "  已删除 release + tag: $tag"
+            else
+              echo "  警告: $tag 删除失败，跳过"
+            fi
+            sleep 1
+          done
+
+      - name: Prune old workflow runs
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "保留最近 3 次运行，其余删除（进行中的当前 run 会被自动跳过）"
+          gh run list -R "$GITHUB_REPOSITORY" --workflow "${{ github.workflow }}" --limit 200 \
+            --json databaseId,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[3:] | .[].databaseId' \
+            | while read -r id; do
+                [ -n "$id" ] || continue
+                echo "  删除 run: $id"
+                gh run delete "$id" -R "$GITHUB_REPOSITORY" || true
+              done
+
+      - name: Stop build container
+        if: ${{ always() }}
+        run: docker rm -f "$BUILD_CONTAINER" "$VERIFY_CONTAINER" 2>/dev/null || true

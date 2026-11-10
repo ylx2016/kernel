@@ -34,6 +34,8 @@ env:
   #   宿主仅提供磁盘、docker 和发布所需的 gh，编译本身一律在容器里做。
   BUILD_IMAGE: debian:12-slim
   BUILD_CONTAINER: kernel-builder
+  VERIFY_CONTAINER: kernel-deb-verifier
+  BUILD_ARCH: linux/amd64
 
 permissions:
   contents: write
@@ -151,7 +153,7 @@ jobs:
           set -euo pipefail
           ok=false
           for i in 1 2 3; do
-            if docker pull "$BUILD_IMAGE"; then ok=true; break; fi
+            if docker pull --platform "$BUILD_ARCH" "$BUILD_IMAGE"; then ok=true; break; fi
             echo "警告: docker pull 第 ${i} 次失败，10 秒后重试"
             sleep 10
           done
@@ -160,14 +162,19 @@ jobs:
             exit 1
           fi
 
+          # 最终验包复用原始镜像 ID，不复用执行过构建代码的容器可写层。
+          base_image_id=$(docker image inspect --format '{{.Id}}' "$BUILD_IMAGE")
+          [[ "$base_image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+          echo "BUILD_BASE_IMAGE_ID=$base_image_id" >> "$GITHUB_ENV"
           docker rm -f "$BUILD_CONTAINER" >/dev/null 2>&1 || true
           docker run -d --name "$BUILD_CONTAINER" \
+            --platform "$BUILD_ARCH" --security-opt no-new-privileges:true \
             --init \
             -v "$GITHUB_WORKSPACE:/work" \
             -w /work \
             -e TZ="$TZ" \
             -e DEBIAN_FRONTEND=noninteractive \
-            "$BUILD_IMAGE" sleep infinity
+            "$base_image_id" sleep infinity
 
           echo "容器内 Debian 版本: $(docker exec "$BUILD_CONTAINER" cat /etc/debian_version)"
           df -h
@@ -367,46 +374,207 @@ jobs:
               ls -lh /work/upload/
             '
 
-          # ★ 产物非空校验（宿主侧再验一次）：防止发布一个没有任何文件的空 Release
-          deb_count=$(find "$GITHUB_WORKSPACE/upload" -type f -name '*.deb' | wc -l)
-          if [ "$deb_count" -eq 0 ]; then
-            echo "错误: 没有产出任何 .deb 包，构建视为失败"
-            exit 1
-          fi
-          echo "已产出 ${deb_count} 个 deb 包:"
-          ls -lh "$GITHUB_WORKSPACE/upload/"
+          # 编译结束不代表产物已通过验证；先终止生产者，再接收最终快照。
+
+      - name: Stop builder before collecting artifacts
+        run: |
+          set -euo pipefail
+          # 必须终止全部构建进程后再接收产物；失败则阻断后续上传。
+          docker rm -f "$BUILD_CONTAINER"
+
+      - name: Collect deb artifacts
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+        run: |
+          set -euo pipefail
+          # 产物原本就是 runner UID；新文件也由 runner 创建，不再用 sudo/chown。
+          # 发布目录在从未挂入 builder 的 RUNNER_TEMP 中。
+          upload_dir=$(mktemp -d "$RUNNER_TEMP/amd64-deb.XXXXXX")
+          python3 -I -B - "$GITHUB_WORKSPACE/upload" "$upload_dir" "$KERNEL_VER" <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import stat
+          import sys
+
+          source, destination = map(Path, sys.argv[1:3])
+          version = sys.argv[3]
+          if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', version):
+              raise SystemExit('Invalid kernel version')
+          for directory in (source, destination):
+              if not stat.S_ISDIR(directory.lstat().st_mode):
+                  raise SystemExit('Artifact directory must be a real directory')
+          if list(destination.iterdir()):
+              raise SystemExit('Snapshot directory must be empty')
+          expected = {f'linux-image-{version}', f'linux-headers-{version}', 'linux-libc-dev'}
+          pattern = re.compile(r'(?P<name>linux-image-' + re.escape(version)
+                               + r'|linux-headers-' + re.escape(version) + r'|linux-libc-dev)_'
+                               + re.escape(version) + r'-(?P<revision>[0-9]+)_amd64\.deb')
+          records, names, revisions = [], set(), set()
+          for path in sorted(source.iterdir()):
+              match = pattern.fullmatch(path.name)
+              info = path.lstat()
+              if (not match or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                      or not 0 < info.st_size < 2 * 1024**3):
+                  raise SystemExit('Invalid artifact: ' + path.name)
+              if match.group('name') in names:
+                  raise SystemExit('Duplicate deb package')
+              names.add(match.group('name'))
+              revisions.add(match.group('revision'))
+              records.append((path, info))
+          if (names != expected or len(revisions) != 1
+                  or sum(info.st_size for _, info in records) > 4 * 1024**3):
+              raise SystemExit('Incomplete or inconsistent deb package set')
+          # 整组检查通过才复制；不跟随链接，不接受共享硬链接或复制期间变化的文件。
+          for path, before in records:
+              flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+              with os.fdopen(os.open(path, flags), 'rb') as incoming:
+                  current = os.fstat(incoming.fileno())
+                  if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                          or (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
+                          != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)):
+                      raise SystemExit('Artifact changed before copy')
+                  target = destination / path.name
+                  with target.open('xb') as outgoing:
+                      remaining = before.st_size
+                      while remaining:
+                          chunk = incoming.read(min(1024 * 1024, remaining))
+                          if not chunk:
+                              raise SystemExit('Artifact truncated during copy')
+                          outgoing.write(chunk)
+                          remaining -= len(chunk)
+                      after = os.fstat(incoming.fileno())
+                      if incoming.read(1) or (after.st_size, after.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+                          raise SystemExit('Artifact changed during copy')
+                  target.chmod(0o644)
+              print(f'{path.name}: {before.st_size} bytes')
+          PY
+          echo "UPLOAD_PATH=$upload_dir" >> "$GITHUB_ENV"
+          ls -lh "$upload_dir"
           df -h
 
-          echo "compile_status=success" >> $GITHUB_ENV
-
-      # 编译已改由非 root 的 builder（uid/gid 与宿主 runner 相同）执行，产物属主天然正确；
-      # 这一步留作兜底（例如将来某步误用 root 重建了 upload/），保证 artifact 归档与
-      # Release 上传不会撞上 Permission denied。
-      - name: Fix ownership of build outputs
-        if: ${{ always() }}
+      - name: Validate final deb artifacts
+        timeout-minutes: 5
+        env:
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
         run: |
-          # ★ 只处理 upload/ 自身与其下第一层的常规文件/目录，不用 chown -R：
-          #   upload/ 里的内容是容器（root、跑不可信源码）创建的，若出现
-          #   upload/xxx -> /etc/shadow 这类符号链接，-R 递归会跟进去改目标属主。
-          #   -h 进一步保证即便匹配到链接也只改链接自身。
-          if [ -d "$GITHUB_WORKSPACE/upload" ]; then
-            sudo find "$GITHUB_WORKSPACE/upload" -maxdepth 1 \( -type f -o -type d \) \
-              -exec chown -h "$(id -u):$(id -g)" {} +
-          fi
+          set -euo pipefail
+          # 只读验证即将上传的快照，不复用 builder 可写层、不联网、不执行包内代码。
+          docker run --rm --name "$VERIFY_CONTAINER" --init -i --pull never \
+            --platform "$BUILD_ARCH" \
+            --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --pids-limit 128 --memory 1g --cpus 2 \
+            --user "$(id -u):$(id -g)" --workdir /tmp \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777 \
+            --mount "type=bind,source=$UPLOAD_PATH,target=/packages,readonly" \
+            -e HOME=/tmp -e TMPDIR=/tmp -e LC_ALL=C -e KERNEL_VER="$KERNEL_VER" \
+            "$BUILD_BASE_IMAGE_ID" bash -se <<'VERIFY'
+          set -euo pipefail
+          [[ "$KERNEL_VER" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || exit 1
+          scratch=$(mktemp -d)
+          trap 'rm -rf -- "$scratch"' EXIT
+          # 单个选定成员最大 192 MiB；仅向固定 tmpfs 文件输出，不按包内路径落盘。
+          ulimit -f 196608
+          extract_member() {
+            local package="$1" member="$2" listing
+            listing=$(dpkg-deb --fsys-tarfile "$package" | tar -tvf - -- "$member")
+            if [[ "$listing" != -* || "$listing" == *$'\n'* ]]; then
+              echo "错误: 缺失、重复或非普通 payload 成员: $member"
+              exit 1
+            fi
+            dpkg-deb --fsys-tarfile "$package" | tar -xOf - -- "$member" > "$scratch/payload"
+            [ -s "$scratch/payload" ] || { echo "错误: 空 payload: $member"; exit 1; }
+          }
+          verify_elf() {
+            local identity machine
+            identity=$(od -An -v -tx1 -N7 "$scratch/payload" | tr -d " \n")
+            machine=$(od -An -v -tx1 -j18 -N2 "$scratch/payload" | tr -d " \n")
+            if [[ "$identity" != 7f454c46020101 || "$machine" != 3e00 ]] || \
+               [ "$(stat -c %s "$scratch/payload")" -lt 64 ]; then
+              echo "错误: headers helper 不是 ELF64 little-endian x86-64"
+              exit 1
+            fi
+          }
+          cd /packages
+          shopt -s nullglob dotglob
+          debs=(./*)
+          [ "${#debs[@]}" -eq 3 ] || { echo "错误: 需要完整的三个 deb"; exit 1; }
+          declare -A seen=()
+          package_version=""
+          total_size=0
+          for package in "${debs[@]}"; do
+            if [ ! -f "$package" ] || [ -L "$package" ] || [ "$(stat -c %h "$package")" != 1 ]; then
+              echo "错误: deb 不是无链接的常规文件"
+              exit 1
+            fi
+            size=$(stat -c %s "$package")
+            [ "$size" -gt 0 ] && [ "$size" -lt 2147483648 ] || exit 1
+            total_size=$((total_size + size))
+            [ "$total_size" -le 4294967296 ] || exit 1
+            name=$(dpkg-deb -f "$package" Package)
+            version=$(dpkg-deb -f "$package" Version)
+            arch=$(dpkg-deb -f "$package" Architecture)
+            revision=${version#"$KERNEL_VER"-}
+            if ! [[ "$arch" == amd64 && "$version" == "$KERNEL_VER"-* && "$revision" =~ ^[0-9]+$ ]]; then
+              echo "错误: deb 架构或版本不符"
+              exit 1
+            fi
+            [ "${package##*/}" = "${name}_${version}_amd64.deb" ] || exit 1
+            case "$name" in
+              "linux-image-${KERNEL_VER}"|"linux-headers-${KERNEL_VER}"|linux-libc-dev) ;;
+              *) echo "错误: 意外 deb 包名 $name"; exit 1 ;;
+            esac
+            if [ -n "${seen[$name]:-}" ] || [[ -n "$package_version" && "$version" != "$package_version" ]]; then
+              echo "错误: 重复包名或不同构建 revision"
+              exit 1
+            fi
+            seen[$name]=1
+            package_version=$version
+            case "$name" in
+              "linux-image-${KERNEL_VER}")
+                extract_member "$package" "./boot/vmlinuz-${KERNEL_VER}"
+                # x86 压缩内核是 bzImage，不是 ELF；检查 boot flag 与 HdrS 协议头。
+                [ "$(stat -c %s "$scratch/payload")" -ge 518 ] || exit 1
+                bootflag=$(od -An -v -tx1 -j510 -N2 "$scratch/payload" | tr -d " \n")
+                magic=$(od -An -v -tx1 -j514 -N4 "$scratch/payload" | tr -d " \n")
+                [[ "$bootflag" == 55aa && "$magic" == 48647253 ]] || \
+                  { echo "错误: 不是 x86 bzImage"; exit 1; }
+                ;;
+              "linux-headers-${KERNEL_VER}")
+                root="./usr/src/linux-headers-${KERNEL_VER}"
+                extract_member "$package" "$root/Makefile"
+                for helper in scripts/basic/fixdep scripts/mod/modpost; do
+                  extract_member "$package" "$root/$helper"
+                  verify_elf
+                done
+                ;;
+              linux-libc-dev)
+                extract_member "$package" ./usr/include/linux/types.h
+                ;;
+            esac
+            echo "--- $name $version $arch ok ---"
+          done
+          for required in "linux-image-${KERNEL_VER}" "linux-headers-${KERNEL_VER}" linux-libc-dev; do
+            [ "${seen[$required]:-}" = 1 ] || exit 1
+          done
+          VERIFY
+          # 只有最终快照校验成功才开放上传与发布。
+          echo "compile_status=success" >> "$GITHUB_ENV"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         if: ${{ env.compile_status == 'success' && env.UPLOAD_DIR == 'true' }}
         with:
           name: ${{ env.FILE_DATE }}
-          path: ${{ github.workspace }}/upload/
+          path: ${{ env.UPLOAD_PATH }}/
+          if-no-files-found: error
 
       - name: Generate release tag and notes
         if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
         run: |
           set -euo pipefail
           echo "release_tag=Debian_Kernel_Cloud_${{ env.kernel_ver }}_bbr_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_ENV
-          cat > release.txt <<EOF
+          cat > "$RUNNER_TEMP/debian-release.txt" <<EOF
           ## Debian / Ubuntu 系云内核 ${{ env.kernel_ver }}
 
           面向 VPS，兼容轻量 NAS、PVE、软路由。默认启用 BBR + FQ。
@@ -436,19 +604,23 @@ jobs:
           EOF
 
       - name: Upload Kernel to Release
+        id: release
         if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
+          KERNEL_VER: ${{ needs.check_update.outputs.kernel_ver }}
+          RELEASE_TAG: ${{ env.release_tag }}
         run: |
           set -euo pipefail
-          gh release create "${{ env.release_tag }}" \
-            "$GITHUB_WORKSPACE"/upload/* \
-            --title "Debian Cloud Kernel ${{ env.kernel_ver }} (BBR)" \
-            --notes-file release.txt
+          gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            "$UPLOAD_PATH"/*.deb \
+            --title "Debian Cloud Kernel ${KERNEL_VER} (BBR)" \
+            --notes-file "$RUNNER_TEMP/debian-release.txt"
 
       # 只清理本流水线自己产出的 Release，保留最新 3 份，Release 和 tag 一起删
       - name: Prune old releases
-        if: ${{ env.UPLOAD_RELEASE == 'true' && env.compile_status == 'success' && !cancelled() }}
+        if: ${{ steps.release.outcome == 'success' && !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PREFIX: Debian_Kernel_Cloud_
@@ -458,7 +630,7 @@ jobs:
           # ★ 同样不用 `gh ... | grep -q` 这种会提前退出的管道：读端一关，gh 就吃 EPIPE
           #   被 SIGPIPE 打死(141)，pipefail 再把整条管道判失败。下面的 awk/sort/tail/cut
           #   都会把输入读干，不会触发。取不到列表就跳过清理——产物已发布成功，不该让 job 变红。
-          if ! all=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 \
+          if ! all=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1000 --exclude-drafts \
                        --json tagName,publishedAt --jq '.[] | [.publishedAt, .tagName] | @tsv'); then
             echo "警告: 无法获取 Release 列表，跳过本次清理（本次发布已成功，不影响产物）"
             exit 0
@@ -512,6 +684,6 @@ jobs:
                 gh run delete "$id" || true
               done
 
-      - name: Stop build container
+      - name: Cleanup containers
         if: ${{ always() }}
-        run: docker rm -f "$BUILD_CONTAINER" || true
+        run: docker rm -f "$BUILD_CONTAINER" "$VERIFY_CONTAINER" 2>/dev/null || true
